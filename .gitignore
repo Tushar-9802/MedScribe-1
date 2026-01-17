@@ -1,0 +1,280 @@
+# ============================================================================
+# MedScribe Project - Git Ignore File
+# ============================================================================
+
+# ===========================
+# Python
+# ===========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ===========================
+# Virtual Environments
+# ===========================
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+.conda/
+conda-env/
+
+# ===========================
+# IDEs & Editors
+# ===========================
+# VS Code / Cursor
+.vscode/
+.cursor/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Jupyter
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+*.ipynb_checkpoints
+
+# Spyder
+.spyderproject
+.spyproject
+
+# ===========================
+# Operating System
+# ===========================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# ===========================
+# Large Model Files
+# ===========================
+# Model weights (use Git LFS or external storage)
+*.bin
+*.safetensors
+*.ckpt
+*.pth
+*.pt
+*.onnx
+*.pb
+
+# Model checkpoints
+models/checkpoints/*
+models/base/*
+!models/checkpoints/.gitkeep
+!models/base/.gitkeep
+
+# Cache files
+models/cache/
+*.cache
+cache/
+
+# Hugging Face cache
+.cache/
+huggingface/
+
+# ===========================
+# Data Files
+# ===========================
+# Raw data (too large for git)
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/README.md
+
+# Processed data
+data/processed/*
+!data/processed/.gitkeep
+
+# Temporary data
+data/temp/
+data/tmp/
+*.csv.tmp
+
+# Large datasets
+*.h5
+*.hdf5
+*.feather
+*.parquet
+
+# ===========================
+# Training & Experiments
+# ===========================
+# Logs
+logs/
+*.log
+results/logs/*
+!results/logs/.gitkeep
+wandb/
+runs/
+tensorboard/
+
+# Experiment outputs
+results/experiments/*
+results/temp/*
+*.out
+*.err
+
+# Training artifacts
+lightning_logs/
+mlruns/
+
+# ===========================
+# Video & Media Assets
+# ===========================
+# Large video files
+docs/video/assets/*.mp4
+docs/video/assets/*.mov
+docs/video/assets/*.avi
+docs/video/final_video.mp4
+
+# Audio files (keep small ones for examples)
+docs/video/assets/*.wav
+docs/video/assets/*.mp3
+!docs/video/assets/example.wav
+
+# High-res images (keep compressed versions)
+docs/video/assets/*_highres.png
+docs/video/assets/*_4k.png
+
+# ===========================
+# Documentation
+# ===========================
+# Built documentation
+docs/_build/
+docs/.doctrees/
+site/
+
+# LaTeX auxiliary files
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+
+# ===========================
+# Secrets & Credentials
+# ===========================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+secrets/
+credentials/
+.credentials/
+*.credentials
+
+# API keys
+*api_key*
+*apikey*
+*.secret
+
+# ===========================
+# Deployment
+# ===========================
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Kubernetes secrets
+*secret*.yaml
+*secret*.yml
+
+# ===========================
+# Testing
+# ===========================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ===========================
+# Backup & Temporary Files
+# ===========================
+*.bak
+*.swp
+*.swo
+*~
+.~*
+*.tmp
+temp/
+tmp/
+
+# ===========================
+# Project-Specific
+# ===========================
+# Submission package
+submission_*/
+*.zip
+!docs/submission_template.zip
+
+# Downloaded external resources
+external_resources/
+downloads/
+
+# User-specific notes (keep template)
+NOTES.md
+TODO_personal.md
+!TODO_template.md
+
+# ===========================
+# Keep These Directories
+# ===========================
+!.gitkeep
