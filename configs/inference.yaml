@@ -1,0 +1,50 @@
+# MedScribe Inference Configuration
+# For Gradio UI and production deployment
+
+model:
+  medgemma:
+    base_model: "google/medgemma-4b-it"
+    adapter_path: "./models/checkpoints/best"  # Path to trained LoRA
+    quantization:
+      load_in_4bit: true
+      bnb_4bit_quant_type: "nf4"
+      bnb_4bit_compute_dtype: "bfloat16"
+    device_map: "auto"
+    torch_dtype: "bfloat16"
+  
+  medasr:
+    model_name: "google/medasr"
+    device: "cuda"
+    torch_dtype: "float16"
+    chunk_length_s: 20
+    stride_length_s: 2
+
+generation:
+  max_new_tokens: 512
+  temperature: 0.7
+  top_p: 0.9
+  top_k: 50
+  repetition_penalty: 1.1
+  do_sample: true
+  num_beams: 1  # Greedy for speed
+
+audio:
+  sample_rate: 16000
+  max_duration_seconds: 60
+  normalize: true
+  trim_silence: true
+
+ui:
+  title: "MedScribe - Voice-to-SOAP Documentation"
+  description: "AI-powered clinical note generation using MedASR + MedGemma"
+  theme: "soft"
+  server_name: "0.0.0.0"
+  server_port: 7860
+  share: false
+  queue: true
+  max_queue_size: 10
+
+performance:
+  use_onnx: false  # Set true after ONNX export
+  onnx_path: "./models/medgemma_onnx/"
+  cache_dir: "./models/cache"

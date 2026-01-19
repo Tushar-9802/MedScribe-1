@@ -1,0 +1,104 @@
+# MedScribe Training Configuration - Laptop (RTX 4070 8GB)
+# Optimized for overnight training runs
+
+experiment:
+  name: "medscribe-lora-r16"
+  description: "Baseline QLoRA fine-tuning on laptop GPU"
+  seed: 42
+
+model:
+  base_model: "google/medgemma-4b-it"
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_quant_type: "nf4"
+    bnb_4bit_compute_dtype: "bfloat16"
+    bnb_4bit_use_double_quant: true
+  
+  device_map: "auto"
+  max_memory: {0: "7GB"}  # Reserve 1GB for system
+
+lora:
+  r: 16
+  lora_alpha: 16
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+  modules_to_save:
+    - "lm_head"
+    - "embed_tokens"
+
+training:
+  # Memory-optimized settings
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 16  # Effective batch = 32
+  gradient_checkpointing: true
+  
+  # Optimizer
+  optim: "paged_adamw_8bit"
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  
+  # Schedule
+  num_train_epochs: 3
+  warmup_ratio: 0.1
+  lr_scheduler_type: "cosine"
+  
+  # Precision
+  fp16: true
+  bf16: false  # RTX 4070 supports FP16 better
+  
+  # Logging
+  logging_steps: 50
+  save_strategy: "steps"
+  save_steps: 500
+  save_total_limit: 2  # Only keep best 2 checkpoints
+  
+  # Evaluation
+  evaluation_strategy: "steps"
+  eval_steps: 500
+  load_best_model_at_end: true
+  metric_for_best_model: "loss"
+  
+  # Output
+  output_dir: "./models/checkpoints"
+  overwrite_output_dir: true
+  
+  # Performance
+  dataloader_num_workers: 0  # Avoid RAM issues
+  dataloader_pin_memory: false
+  remove_unused_columns: false
+
+data:
+  train_file: "./data/processed/train.jsonl"
+  validation_file: "./data/processed/val.jsonl"
+  max_seq_length: 2048
+  preprocessing_num_workers: 4
+
+prompt:
+  template: |
+    You are a clinical documentation assistant. Convert the following medical transcript into a structured SOAP note.
+
+    TRANSCRIPT:
+    {transcript}
+
+    Generate a SOAP note with these sections:
+    - SUBJECTIVE: Patient-reported symptoms and history
+    - OBJECTIVE: Physical exam findings and vital signs
+    - ASSESSMENT: Clinical impressions and differential diagnoses
+    - PLAN: Diagnostic tests, treatments, and follow-up
+
+    SOAP NOTE:
+
+logging:
+  report_to: "tensorboard"
+  logging_dir: "./logs"
+  logging_first_step: true

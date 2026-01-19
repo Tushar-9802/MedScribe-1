@@ -1,0 +1,58 @@
+# Evaluation Configuration
+
+metrics:
+  automatic:
+    - name: "rouge"
+      types: ["rouge1", "rouge2", "rougeL", "rougeLsum"]
+      use_stemmer: true
+    
+    - name: "bleu"
+      max_order: 4
+      smooth: true
+    
+    - name: "bertscore"
+      model: "microsoft/deberta-xlarge-mnli"
+      lang: "en"
+      rescale_with_baseline: true
+  
+  clinical:
+    - name: "structure_completeness"
+      required_sections:
+        - "SUBJECTIVE"
+        - "OBJECTIVE"
+        - "ASSESSMENT"
+        - "PLAN"
+    
+    - name: "icd10_accuracy"
+      extract_method: "regex"  # or "ner"
+    
+    - name: "medication_accuracy"
+      extract_method: "regex"
+      check_dosage: true
+
+human_eval:
+  criteria:
+    - name: "medical_accuracy"
+      scale: [1, 2, 3, 4, 5]
+      description: "Correctness of clinical information"
+    
+    - name: "completeness"
+      scale: [1, 2, 3, 4, 5]
+      description: "All relevant information captured"
+    
+    - name: "clarity"
+      scale: [1, 2, 3, 4, 5]
+      description: "Readability and organization"
+    
+    - name: "usability"
+      scale: [1, 2, 3, 4, 5]
+      description: "Would use in practice"
+  
+  num_raters: 3
+  samples_per_rater: 50
+  inter_rater_reliability: "krippendorff_alpha"
+
+test_set:
+  path: "./data/processed/test.jsonl"
+  size: 1000
+  stratify_by: "specialty"  # Ensure specialty diversity

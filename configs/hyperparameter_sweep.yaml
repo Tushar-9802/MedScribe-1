@@ -1,0 +1,41 @@
+# Hyperparameter Sweep Configuration
+# For Week 2 optimization runs
+
+sweep:
+  name: "medscribe-hyperparam-sweep"
+  method: "grid"  # Grid search (deterministic)
+  
+  parameters:
+    # LoRA rank
+    lora_r:
+      values: [8, 16, 32]
+    
+    # Learning rate
+    learning_rate:
+      values: [1.0e-4, 2.0e-4, 5.0e-4]
+    
+    # Warmup ratio
+    warmup_ratio:
+      values: [0.05, 0.1, 0.15]
+  
+  # Fixed parameters (same across all runs)
+  fixed:
+    lora_alpha: 16  # Keep alpha = r for simplicity
+    batch_size: 2
+    gradient_accumulation: 16
+    epochs: 3
+
+# Total combinations: 3 × 3 × 3 = 27 runs
+# Estimated time: 27 × 7.5hrs = 202 hours (infeasible)
+# Solution: Run top 6 configs based on prior research
+
+priority_runs:
+  - {lora_r: 16, learning_rate: 2.0e-4, warmup_ratio: 0.1}  # Baseline
+  - {lora_r: 8, learning_rate: 2.0e-4, warmup_ratio: 0.1}   # Smaller
+  - {lora_r: 32, learning_rate: 2.0e-4, warmup_ratio: 0.1}  # Larger
+  - {lora_r: 16, learning_rate: 1.0e-4, warmup_ratio: 0.1}  # Lower LR
+  - {lora_r: 16, learning_rate: 5.0e-4, warmup_ratio: 0.1}  # Higher LR
+  - {lora_r: 16, learning_rate: 2.0e-4, warmup_ratio: 0.15} # More warmup
+
+# Run these 6 configs over Mon/Wed/Fri Week 2
+# Total: 6 × 7.5hrs = 45 hours
