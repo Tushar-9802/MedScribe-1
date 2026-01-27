@@ -1,3 +1,7 @@
+"""
+Checks Audio formatting and stats
+"""
+
 import librosa
 import soundfile as sf
 import os

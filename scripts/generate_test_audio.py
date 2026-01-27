@@ -1,3 +1,7 @@
+"""
+Synthetic audio generation
+"""
+
 from gtts import gTTS
 import os
 import librosa
