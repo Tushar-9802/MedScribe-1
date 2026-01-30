@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Download MedGemma and MedASR to local cache
-Run overnight - models are ~10GB total
 """
 
 import os
