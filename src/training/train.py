@@ -1,279 +1,467 @@
 """
-MedGemma LoRA Fine-Tuning - Full Training Run
-Maximum 10-hour runtime with checkpoint resume capability
-"""
+MedScribe v2 — MedGemma LoRA Fine-Tuning
+=========================================
+Optimized for:
+- RTX 5070 Ti (16GB VRAM), Windows
+- 712 high-quality training samples (GPT-4o generated)
+- Clinical SOAP note generation
 
+Key changes from v1:
+- Reduced effective batch size (712 samples ≠ 3200 — need more updates per epoch)
+- 5 epochs instead of 3 (smaller dataset needs more passes)
+- Lower learning rate (2e-5 → avoids overfitting on small dataset)
+- Eval every epoch (not every 250 steps)
+- Early stopping on val loss plateau
+- Proper max_seq_length for new data profile
+- Save best model by val loss
+"""
+import os
+import sys
+import time
+import json
 import torch
+from datetime import datetime, timedelta
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     BitsAndBytesConfig,
     TrainingArguments,
-    Trainer
+    Trainer,
+    EarlyStoppingCallback,
 )
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from datasets import load_dataset
-import os
-import time
-from datetime import datetime, timedelta
-import yaml
 
-print("="*60)
-print("MedGemma LoRA Fine-Tuning")
-print("="*60)
-
-# Load configuration
-print("\n[1/7] Loading configuration...")
-with open("configs/training.yaml", 'r') as f:
-    config = yaml.safe_load(f)
-
-print(f"Configuration loaded from configs/training.yaml")
-
-# Extract key parameters
+# ============================================================
+# CONFIGURATION
+# ============================================================
+# Paths
 MODEL_NAME = "./models/medgemma"
-TRAIN_FILE = config['data']['train_file']
-VAL_FILE = config['data']['validation_file']
-OUTPUT_DIR = config['training']['output_dir']
-BATCH_SIZE = config['training']['per_device_train_batch_size']
-GRAD_ACCUM = config['training']['gradient_accumulation_steps']
-LEARNING_RATE = config['training']['learning_rate']
-EPOCHS = config['training']['num_train_epochs']
+TRAIN_FILE = "./data/processed/train.jsonl"
+VAL_FILE = "./data/processed/val.jsonl"
+OUTPUT_DIR = "./models/checkpoints/medgemma_v2_soap"
+FINAL_MODEL_DIR = os.path.join(OUTPUT_DIR, "final_model")
 
-# 10-hour time limit
-MAX_RUNTIME_HOURS = 10
-start_time = time.time()
-max_end_time = start_time + (MAX_RUNTIME_HOURS * 3600)
+# Training — tuned for 712 samples on 16GB VRAM
+BATCH_SIZE = 2              # OOM at 4 with 16GB — 2 is safe
+GRAD_ACCUM = 8              # Effective batch = 16 (same: 2×8 = 16)
+LEARNING_RATE = 2e-5        # Lower than v1's 2e-4 — small dataset overfits fast at high LR
+EPOCHS = 5                  # More passes for small dataset (was 3)
+WARMUP_RATIO = 0.1          # 10% warmup
+MAX_SEQ_LENGTH = 1024       # Reduced from 1536 — fits 16GB, covers 95%+ of samples
+MAX_RUNTIME_HOURS = 8       # Safety cap
 
-print(f"\nTraining parameters:")
-print(f"  Model: {MODEL_NAME}")
-print(f"  Batch size: {BATCH_SIZE}")
-print(f"  Gradient accumulation: {GRAD_ACCUM}")
-print(f"  Effective batch: {BATCH_SIZE * GRAD_ACCUM}")
-print(f"  Learning rate: {LEARNING_RATE}")
-print(f"  Epochs: {EPOCHS}")
-print(f"  Max runtime: {MAX_RUNTIME_HOURS} hours")
-print(f"  End time: {datetime.fromtimestamp(max_end_time).strftime('%Y-%m-%d %H:%M:%S')}")
+# LoRA
+LORA_R = 16
+LORA_ALPHA = 32             # Alpha = 2*r (stronger adaptation for small dataset)
+LORA_DROPOUT = 0.1          # Higher dropout (was 0.05) — regularization for small dataset
+TARGET_MODULES = [
+    "q_proj", "k_proj", "v_proj", "o_proj",
+    "gate_proj", "up_proj", "down_proj",
+]
 
-# Load dataset
-print("\n[2/7] Loading dataset...")
-dataset = load_dataset('json', data_files={
-    'train': TRAIN_FILE,
-    'validation': VAL_FILE
-})
+# Eval & checkpointing
+EVAL_STRATEGY = "epoch"     # Eval every epoch (not steps — 712 samples = few steps per epoch)
+SAVE_STRATEGY = "epoch"
+EARLY_STOPPING_PATIENCE = 2 # Stop if val loss doesn't improve for 2 epochs
 
-print(f"Train samples: {len(dataset['train'])}")
-print(f"Validation samples: {len(dataset['validation'])}")
+print("=" * 60)
+print("MedScribe v2 — LoRA Fine-Tuning")
+print("=" * 60)
 
-# Calculate steps
-steps_per_epoch = len(dataset['train']) // (BATCH_SIZE * GRAD_ACCUM)
-total_steps = steps_per_epoch * EPOCHS
-print(f"Steps per epoch: {steps_per_epoch}")
-print(f"Total steps: {total_steps}")
+# ============================================================
+# GATE 0: Validate environment
+# ============================================================
+if not torch.cuda.is_available():
+    print("✗ ABORT: No CUDA GPU detected.")
+    sys.exit(1)
 
-# Estimate time
-est_time_hours = (total_steps * 45) / 3600  # 45s per step from dry run
-print(f"Estimated time: {est_time_hours:.1f} hours")
+gpu_name = torch.cuda.get_device_name(0)
+gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
+print(f"\nGPU: {gpu_name} ({gpu_mem:.1f} GB)")
 
-if est_time_hours > MAX_RUNTIME_HOURS:
-    print(f"\nWARNING: Estimated time ({est_time_hours:.1f}h) exceeds limit ({MAX_RUNTIME_HOURS}h)")
-    print("Training will checkpoint and can be resumed")
+if gpu_mem < 14:
+    print(f"⚠ WARNING: Only {gpu_mem:.1f} GB VRAM. May OOM with current config.")
+    print(f"  Consider reducing BATCH_SIZE to 2 or MAX_SEQ_LENGTH to 1024.")
 
-# Load model
-print("\n[3/7] Loading MedGemma 4B...")
+# ============================================================
+# GATE 1: Validate data files
+# ============================================================
+for path, name in [(TRAIN_FILE, "train"), (VAL_FILE, "val")]:
+    if not os.path.exists(path):
+        print(f"✗ ABORT: {name} file not found: {path}")
+        sys.exit(1)
+
+# Quick line count and integrity check
+for path, name in [(TRAIN_FILE, "train"), (VAL_FILE, "val")]:
+    with open(path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    valid = 0
+    for line in lines:
+        try:
+            obj = json.loads(line)
+            assert "messages" in obj
+            assert len(obj["messages"]) == 2
+            valid += 1
+        except Exception:
+            pass
+    if valid < len(lines) * 0.9:
+        print(f"✗ ABORT: {name} has {valid}/{len(lines)} valid lines. Data corrupt.")
+        sys.exit(1)
+    print(f"✓ {name}: {valid} valid samples")
+
+# ============================================================
+# GATE 2: Validate model exists
+# ============================================================
+if not os.path.isdir(MODEL_NAME):
+    print(f"✗ ABORT: Model not found: {MODEL_NAME}")
+    print(f"  Download MedGemma first.")
+    sys.exit(1)
+print(f"✓ Model: {MODEL_NAME}")
+
+# ============================================================
+# LOAD MODEL
+# ============================================================
+print(f"\n[1/6] Loading base model (4-bit quantized)...")
+
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_quant_type="nf4",
     bnb_4bit_compute_dtype=torch.bfloat16,
-    bnb_4bit_use_double_quant=True
+    bnb_4bit_use_double_quant=True,
 )
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
     quantization_config=bnb_config,
     device_map="auto",
-    torch_dtype=torch.bfloat16,
-    trust_remote_code=True
+    dtype=torch.bfloat16,
+    trust_remote_code=True,
 )
-
-model.config.use_cache = False
-torch.cuda.empty_cache()
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.pad_token_id = tokenizer.eos_token_id
 
-print("Model loaded successfully")
+# Prepare for k-bit training
+model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+print(f"✓ Base model loaded")
 
-# Prepare for LoRA
-print("\n[4/7] Configuring LoRA...")
-model = prepare_model_for_kbit_training(model)
+# ============================================================
+# ATTACH LoRA
+# ============================================================
+print(f"\n[2/6] Attaching LoRA adapter...")
 
 lora_config = LoraConfig(
-    r=config['lora']['r'],
-    lora_alpha=config['lora']['lora_alpha'],
-    lora_dropout=config['lora']['lora_dropout'],
-    bias=config['lora']['bias'],
-    task_type=config['lora']['task_type'],
-    target_modules=config['lora']['target_modules']
+    r=LORA_R,
+    lora_alpha=LORA_ALPHA,
+    lora_dropout=LORA_DROPOUT,
+    bias="none",
+    task_type="CAUSAL_LM",
+    target_modules=TARGET_MODULES,
 )
 
 model = get_peft_model(model, lora_config)
-print("\nTrainable parameters:")
-model.print_trainable_parameters()
 
-# Tokenize dataset
-print("\n[5/7] Tokenizing dataset...")
+# Count parameters
+trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+total = sum(p.numel() for p in model.parameters())
+print(f"✓ LoRA attached")
+print(f"  Trainable: {trainable:,} ({trainable/total*100:.2f}%)")
+print(f"  Total:     {total:,}")
+print(f"  Config:    r={LORA_R}, alpha={LORA_ALPHA}, dropout={LORA_DROPOUT}")
 
-INSTRUCTION_TEMPLATE = """You are a clinical documentation assistant. Convert the following medical text into a structured SOAP note.
+# ============================================================
+# LOAD + TOKENIZE DATASET
+# ============================================================
+print(f"\n[3/6] Loading and tokenizing dataset...")
 
-MEDICAL TEXT:
-{input_text}
+dataset = load_dataset("json", data_files={
+    "train": TRAIN_FILE,
+    "validation": VAL_FILE,
+})
 
-Generate a SOAP note with these sections:
-- SUBJECTIVE: Patient-reported symptoms and history
-- OBJECTIVE: Physical exam findings and vital signs
-- ASSESSMENT: Clinical impressions and diagnoses
-- PLAN: Diagnostic tests, treatments, and follow-up
+print(f"  Train: {len(dataset['train'])} samples")
+print(f"  Val:   {len(dataset['validation'])} samples")
 
-SOAP NOTE:"""
 
 def tokenize_function(examples):
-    """Tokenize conversations"""
-    texts = []
-    for messages in examples['messages']:
-        user_msg = messages[0]['content']
-        assistant_msg = messages[1]['content']
-        text = user_msg + "\n\n" + assistant_msg
-        texts.append(text)
+    """Tokenize chat-format messages into input_ids + labels + token_type_ids.
     
-    tokenized = tokenizer(
-        texts,
-        truncation=True,
-        max_length=2048,
-        padding='max_length'
-    )
-    
-    result = {
-        'input_ids': tokenized['input_ids'],
-        'attention_mask': tokenized['attention_mask'],
-        'labels': tokenized['input_ids'].copy()
-    }
-    
-    if 'token_type_ids' not in tokenized:
-        result['token_type_ids'] = [[0] * len(ids) for ids in tokenized['input_ids']]
-    else:
-        result['token_type_ids'] = tokenized['token_type_ids']
-    
-    return result
+    Gemma 3 / MedGemma 1.5 requires token_type_ids during training.
+    token_type_ids=0 for all text tokens (single-turn, no image).
+    """
+    all_input_ids = []
+    all_attention_mask = []
+    all_labels = []
+    all_token_type_ids = []
 
-tokenized_dataset = dataset.map(
+    for messages in examples["messages"]:
+        # Build full text: user prompt + assistant response
+        user_text = messages[0]["content"]
+        assistant_text = messages[1]["content"]
+
+        # Tokenize prompt (user) — these tokens get label=-100 (not trained on)
+        prompt_tokens = tokenizer(
+            user_text,
+            add_special_tokens=True,
+            truncation=True,
+            max_length=MAX_SEQ_LENGTH,
+        )
+
+        # Tokenize response (assistant) — these tokens are the training target
+        response_tokens = tokenizer(
+            assistant_text,
+            add_special_tokens=False,
+            truncation=True,
+            max_length=MAX_SEQ_LENGTH // 2,  # Response is shorter than prompt
+        )
+
+        # Concatenate
+        input_ids = prompt_tokens["input_ids"] + response_tokens["input_ids"]
+        attention_mask = [1] * len(input_ids)
+        # token_type_ids: 0 for all tokens (text-only, no image tokens)
+        token_type_ids = [0] * len(input_ids)
+
+        # Labels: -100 for prompt tokens (don't compute loss on input)
+        labels = [-100] * len(prompt_tokens["input_ids"]) + response_tokens["input_ids"]
+
+        # Truncate to max length
+        if len(input_ids) > MAX_SEQ_LENGTH:
+            input_ids = input_ids[:MAX_SEQ_LENGTH]
+            attention_mask = attention_mask[:MAX_SEQ_LENGTH]
+            token_type_ids = token_type_ids[:MAX_SEQ_LENGTH]
+            labels = labels[:MAX_SEQ_LENGTH]
+
+        # Pad to max length
+        padding_length = MAX_SEQ_LENGTH - len(input_ids)
+        if padding_length > 0:
+            input_ids = input_ids + [tokenizer.pad_token_id] * padding_length
+            attention_mask = attention_mask + [0] * padding_length
+            token_type_ids = token_type_ids + [0] * padding_length
+            labels = labels + [-100] * padding_length
+
+        all_input_ids.append(input_ids)
+        all_attention_mask.append(attention_mask)
+        all_token_type_ids.append(token_type_ids)
+        all_labels.append(labels)
+
+    return {
+        "input_ids": all_input_ids,
+        "attention_mask": all_attention_mask,
+        "token_type_ids": all_token_type_ids,
+        "labels": all_labels,
+    }
+
+
+tokenized = dataset.map(
     tokenize_function,
     batched=True,
-    remove_columns=dataset['train'].column_names,
-    desc="Tokenizing"
+    batch_size=50,
+    remove_columns=dataset["train"].column_names,
+    desc="Tokenizing",
 )
 
-print("Tokenization complete")
+# Verify tokenization
+sample = tokenized["train"][0]
+prompt_tokens = sum(1 for l in sample["labels"] if l == -100)
+response_tokens = sum(1 for l in sample["labels"] if l != -100)
+print(f"✓ Tokenization complete")
+print(f"  Sample: {prompt_tokens} prompt tokens + {response_tokens} response tokens")
+print(f"  Total sequence length: {len(sample['input_ids'])}")
 
-# Training arguments
-print("\n[6/7] Setting up training...")
+# GATE: Verify response tokens exist (not all -100)
+if response_tokens < 10:
+    print(f"✗ ABORT: Only {response_tokens} response tokens. Tokenization broken.")
+    sys.exit(1)
 
-# Calculate checkpoint interval (every hour)
-checkpoint_steps = int(3600 / 45)  # Save every hour (45s per step)
+# ============================================================
+# TRAINING ARGUMENTS
+# ============================================================
+print(f"\n[4/6] Configuring training...")
+
+steps_per_epoch = len(dataset["train"]) // (BATCH_SIZE * GRAD_ACCUM)
+total_steps = steps_per_epoch * EPOCHS
+est_time_hours = (total_steps * 30) / 3600  # ~30s per step estimate
+
+print(f"  Effective batch size: {BATCH_SIZE * GRAD_ACCUM}")
+print(f"  Steps per epoch:     {steps_per_epoch}")
+print(f"  Total steps:         {total_steps}")
+print(f"  Estimated time:      {est_time_hours:.1f} hours")
+
+if est_time_hours > MAX_RUNTIME_HOURS:
+    print(f"⚠ WARNING: Estimated {est_time_hours:.1f}h exceeds {MAX_RUNTIME_HOURS}h limit.")
+    print(f"  Training will be stopped at {MAX_RUNTIME_HOURS}h.")
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 training_args = TrainingArguments(
     output_dir=OUTPUT_DIR,
-    num_train_epochs=EPOCHS,
+
+    # Batch
     per_device_train_batch_size=BATCH_SIZE,
-    per_device_eval_batch_size=1,
+    per_device_eval_batch_size=BATCH_SIZE,
     gradient_accumulation_steps=GRAD_ACCUM,
+
+    # Optimizer
+    optim="adamw_torch",
     learning_rate=LEARNING_RATE,
-    warmup_ratio=config['training']['warmup_ratio'],
-    lr_scheduler_type=config['training']['lr_scheduler_type'],
-    
+    weight_decay=0.01,
+    max_grad_norm=1.0,
+    warmup_ratio=WARMUP_RATIO,
+    lr_scheduler_type="cosine",
+
+    # Duration
+    num_train_epochs=EPOCHS,
+
     # Precision
-    bf16=config['training']['bf16'],
-    tf32=config['training']['tf32'],
-    
-    # Logging
-    logging_dir=config['logging']['logging_dir'],
-    logging_steps=config['training']['logging_steps'],
-    logging_strategy="steps",
-    
-    # Checkpointing (every hour)
-    save_strategy="steps",
-    save_steps=checkpoint_steps,
-    save_total_limit=config['training']['save_total_limit'],
-    
-    # Evaluation (every 2 hours)
-    eval_strategy="steps",
-    eval_steps=checkpoint_steps * 2,
-    
-    # Model selection
-    load_best_model_at_end=False,  # Save memory
+    bf16=True,
+    tf32=True,
+
+    # Eval + Save (every epoch)
+    eval_strategy=EVAL_STRATEGY,
+    save_strategy=SAVE_STRATEGY,
+    save_total_limit=3,
+    load_best_model_at_end=True,
     metric_for_best_model="eval_loss",
-    
-    # Performance
-    gradient_checkpointing=config['training']['gradient_checkpointing'],
+    greater_is_better=False,
+
+    # Logging
+    logging_dir=os.path.join(OUTPUT_DIR, "logs"),
+    logging_steps=10,
+    logging_strategy="steps",
+    report_to="none",
+
+    # Memory optimization
+    gradient_checkpointing=True,
     gradient_checkpointing_kwargs={"use_reentrant": False},
-    optim=config['training']['optim'],
-    max_grad_norm=config['training']['max_grad_norm'],
-    
-    # Reporting
-    report_to=config['logging']['report_to'],
-    
+
+    # Windows compatibility
+    dataloader_num_workers=0,
+    dataloader_pin_memory=False,
+
     # Resume
-    resume_from_checkpoint=True,  # Auto-resume if checkpoint exists
+    resume_from_checkpoint=True,
+
+    # Seed
+    seed=42,
 )
 
-print(f"Checkpoint every: {checkpoint_steps} steps (~1 hour)")
-print(f"Evaluation every: {checkpoint_steps * 2} steps (~2 hours)")
+# ============================================================
+# TRAINER
+# ============================================================
+print(f"\n[5/6] Creating trainer...")
 
-# Create trainer
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=tokenized_dataset['train'],
-    eval_dataset=tokenized_dataset['validation'],
+    train_dataset=tokenized["train"],
+    eval_dataset=tokenized["validation"],
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=EARLY_STOPPING_PATIENCE)],
 )
 
-# Train
-print("\n[7/7] Starting training...")
-print("="*60)
-print(f"Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-print(f"Target end: {datetime.fromtimestamp(max_end_time).strftime('%Y-%m-%d %H:%M:%S')}")
-print("="*60)
-print()
+print(f"✓ Trainer ready")
+print(f"  Early stopping: patience={EARLY_STOPPING_PATIENCE} epochs")
+
+# ============================================================
+# TRAIN
+# ============================================================
+print(f"\n[6/6] Starting training...")
+print("=" * 60)
+start_time = time.time()
+print(f"Start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+print(f"Max end: {(datetime.now() + timedelta(hours=MAX_RUNTIME_HOURS)).strftime('%Y-%m-%d %H:%M:%S')}")
+print("=" * 60)
 
 try:
-    trainer.train()
-    
-    print("\n" + "="*60)
-    print("Training Complete")
-    print("="*60)
-    
-    # Save final model
-    final_output = os.path.join(OUTPUT_DIR, "final_model")
-    trainer.save_model(final_output)
-    print(f"Final model saved: {final_output}")
-    
-    # Training stats
-    elapsed = time.time() - start_time
-    print(f"\nTraining time: {elapsed/3600:.2f} hours")
-    
-    if torch.cuda.is_available():
-        vram = torch.cuda.max_memory_allocated() / 1e9
-        print(f"Peak VRAM: {vram:.2f} GB")
-    
+    result = trainer.train(resume_from_checkpoint=True if os.listdir(OUTPUT_DIR) else False)
 except KeyboardInterrupt:
-    print("\n" + "="*60)
-    print("Training Interrupted")
-    print("="*60)
-    print("Latest checkpoint saved - can resume with same command")
-    
-except Exception as e:
-    print("\n" + "="*60)
-    print("Training Failed")
-    print("="*60)
-    print(f"Error: {str(e)}")
-    raise
+    print("\n⚠ Training interrupted by user. Saving current state...")
+    trainer.save_model(FINAL_MODEL_DIR)
+    tokenizer.save_pretrained(FINAL_MODEL_DIR)
+    print(f"✓ Model saved to {FINAL_MODEL_DIR}")
+    sys.exit(0)
+
+elapsed = time.time() - start_time
+elapsed_hours = elapsed / 3600
+
+# ============================================================
+# SAVE BEST MODEL
+# ============================================================
+print(f"\n{'=' * 60}")
+print("SAVING FINAL MODEL")
+print("=" * 60)
+
+os.makedirs(FINAL_MODEL_DIR, exist_ok=True)
+trainer.save_model(FINAL_MODEL_DIR)
+tokenizer.save_pretrained(FINAL_MODEL_DIR)
+
+# Verify save
+if os.path.exists(os.path.join(FINAL_MODEL_DIR, "adapter_config.json")):
+    print(f"✓ Model saved: {FINAL_MODEL_DIR}")
+else:
+    print(f"✗ Save may have failed — adapter_config.json not found")
+
+# ============================================================
+# FINAL EVAL
+# ============================================================
+print(f"\nRunning final evaluation...")
+eval_results = trainer.evaluate()
+
+# ============================================================
+# RESULTS
+# ============================================================
+print(f"\n{'=' * 60}")
+print("TRAINING RESULTS")
+print("=" * 60)
+print(f"  Duration:        {elapsed_hours:.2f} hours")
+print(f"  Train loss:      {result.training_loss:.4f}")
+print(f"  Val loss:        {eval_results['eval_loss']:.4f}")
+print(f"  Total steps:     {result.global_step}")
+print(f"  Epochs completed:{result.num_train_epochs if hasattr(result, 'num_train_epochs') else 'N/A'}")
+
+# Overfitting check
+gap = result.training_loss - eval_results["eval_loss"]
+if gap < -0.3:
+    print(f"  ⚠ Overfitting detected (train - val = {gap:.3f})")
+    print(f"    Consider: reduce epochs, increase dropout, or add data")
+elif abs(gap) < 0.1:
+    print(f"  ✓ Good generalization (train ≈ val, gap = {gap:.3f})")
+else:
+    print(f"  ✓ Train/val gap: {gap:.3f}")
+
+# Save training log
+log_path = os.path.join(OUTPUT_DIR, "training_log.json")
+log_data = {
+    "timestamp": datetime.now().isoformat(),
+    "duration_hours": elapsed_hours,
+    "train_loss": result.training_loss,
+    "eval_loss": eval_results["eval_loss"],
+    "total_steps": result.global_step,
+    "config": {
+        "batch_size": BATCH_SIZE,
+        "grad_accum": GRAD_ACCUM,
+        "effective_batch": BATCH_SIZE * GRAD_ACCUM,
+        "learning_rate": LEARNING_RATE,
+        "epochs": EPOCHS,
+        "lora_r": LORA_R,
+        "lora_alpha": LORA_ALPHA,
+        "lora_dropout": LORA_DROPOUT,
+        "max_seq_length": MAX_SEQ_LENGTH,
+        "train_samples": len(dataset["train"]),
+        "val_samples": len(dataset["validation"]),
+    },
+    "gpu": gpu_name,
+    "gpu_mem_gb": gpu_mem,
+}
+
+with open(log_path, "w") as f:
+    json.dump(log_data, f, indent=2)
+print(f"\n✓ Training log: {log_path}")
+
+print(f"\n{'=' * 60}")
+print(f"✓ TRAINING COMPLETE")
+print(f"  Model: {FINAL_MODEL_DIR}")
+print(f"  Next:  python test_inference_v3.py")
+print("=" * 60)

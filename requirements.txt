@@ -69,6 +69,7 @@ huggingface-hub>=0.20.0
 tensorboard>=2.18.0
 wandb>=0.16.0
 matplotlib>=3.9.0
+openai>=1.61.0
 
 # Training (LoRA alternative without bitsandbytes)
 trl>=0.8.0
