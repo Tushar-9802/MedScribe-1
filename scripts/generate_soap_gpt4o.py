@@ -226,7 +226,7 @@ def main():
     # Dry run limit
     total = min(5, len(df)) if DRY_RUN else len(df)
     if DRY_RUN:
-        print(f"\n🔍 DRY RUN: Processing first {total} samples only")
+        print(f"\nDRY RUN: Processing first {total} samples only")
         print(f"   Run without --dry-run for full generation\n")
 
     # ============================================================
@@ -353,7 +353,7 @@ def main():
             batch_count = 0
             valid_so_far = sum(1 for r in results if r["valid"])
             print(
-                f"    💾 Saved. {valid_so_far} valid / {len(results)} total. "
+                f"    Saved. {valid_so_far} valid / {len(results)} total. "
                 f"Cost: ${cp['total_cost']:.4f}"
             )
 
@@ -372,7 +372,7 @@ def main():
     # ============================================================
     verify_df = pd.read_csv(OUTPUT_FILE)
     if len(verify_df) != len(results):
-        print(f"\n⚠ Save mismatch: {len(results)} results, {len(verify_df)} rows in file")
+        print(f"\n Save mismatch: {len(results)} results, {len(verify_df)} rows in file")
 
     # ============================================================
     # SUMMARY
@@ -418,7 +418,7 @@ def main():
         print(f"\n✓ READY for next step: python scripts/prepare_training_data.py")
 
     if DRY_RUN:
-        print(f"\n🔍 This was a DRY RUN. Review output above.")
+        print(f"\n This was a DRY RUN. Review output above.")
         print(f"   If quality looks good, run again without --dry-run")
         print(f"\n   Sample output (first valid note):")
         first_valid = final_df[final_df["valid"] == True].head(1)

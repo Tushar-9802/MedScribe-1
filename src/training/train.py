@@ -1,5 +1,5 @@
 """
-MedScribe v2 — MedGemma LoRA Fine-Tuning
+MedScribe — MedGemma LoRA Fine-Tuning
 =========================================
 Optimized for:
 - RTX 5070 Ti (16GB VRAM), Windows
@@ -463,5 +463,3 @@ print(f"\n✓ Training log: {log_path}")
 print(f"\n{'=' * 60}")
 print(f"✓ TRAINING COMPLETE")
 print(f"  Model: {FINAL_MODEL_DIR}")
-print(f"  Next:  python test_inference_v3.py")
-print("=" * 60)
