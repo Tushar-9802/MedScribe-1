@@ -18,7 +18,6 @@ import time
 import html as html_mod
 import gradio as gr
 from src.pipeline import MedScribePipeline
-from src.inference import format_soap_html
 
 # ============================================================
 # CONFIGURATION
@@ -156,11 +155,7 @@ CUSTOM_CSS = """
     color: #1e293b !important;
 }
 
-/* ── SOAP reveal animation ── */
-@keyframes soapReveal {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-}
+/* ── SOAP card (no animation — eliminates stutter) ── */
 .soap-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
@@ -172,15 +167,7 @@ CUSTOM_CSS = """
     line-height: 1.75;
     color: #1e293b !important;
     white-space: pre-wrap;
-    animation: soapReveal 0.6s ease-out;
 }
-.soap-card .soap-section {
-    animation: soapReveal 0.5s ease-out both;
-}
-.soap-card .soap-section:nth-child(1) { animation-delay: 0.0s; }
-.soap-card .soap-section:nth-child(2) { animation-delay: 0.15s; }
-.soap-card .soap-section:nth-child(3) { animation-delay: 0.3s; }
-.soap-card .soap-section:nth-child(4) { animation-delay: 0.45s; }
 .soap-section-header {
     font-weight: 700;
     color: #0f766e;
@@ -207,7 +194,6 @@ CUSTOM_CSS = """
     box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     white-space: pre-wrap;
     color: #1e293b !important;
-    animation: soapReveal 0.4s ease-out;
 }
 
 /* ── Analysis result cards ── */
@@ -218,15 +204,10 @@ CUSTOM_CSS = """
     padding: 16px 20px;
     margin-bottom: 12px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    animation: soapReveal 0.4s ease-out both;
     color: #1e293b !important;
     line-height: 1.65;
     font-size: 13px;
 }
-.analysis-card:nth-child(2) { animation-delay: 0.1s; }
-.analysis-card:nth-child(3) { animation-delay: 0.2s; }
-.analysis-card:nth-child(4) { animation-delay: 0.3s; }
-.analysis-card:nth-child(5) { animation-delay: 0.4s; }
 .analysis-card-header {
     font-weight: 700;
     font-size: 12px;
@@ -332,11 +313,6 @@ div[data-testid] .wrap {
 * {
     animation-name: none !important;
 }
-/* Re-enable only OUR specific animation */
-.soap-card, .soap-card .soap-section, .tool-output,
-.analysis-card, .status-pill {
-    animation-name: soapReveal !important;
-}
 .status-pill {
     animation: none !important;
     transition: all 0.2s ease !important;
@@ -370,6 +346,41 @@ label, .label-wrap, span.svelte-1gfkn6j {
 .audio-container, [data-testid="audio"] {
     background: #ffffff !important;
 }
+/* ── Nuclear light mode — override OS dark preference at browser level ── */
+:root, html, body {
+    color-scheme: light only !important;
+}
+.dark, .dark * {
+    --background-fill-primary: #ffffff !important;
+    --background-fill-secondary: #f8fafb !important;
+    --block-background-fill: #ffffff !important;
+    --input-background-fill: #ffffff !important;
+    --body-background-fill: #f8fafb !important;
+    --color-accent: #0d9488 !important;
+    --body-text-color: #1e293b !important;
+    --block-label-text-color: #475569 !important;
+    --block-title-text-color: #1e293b !important;
+    --neutral-50: #f8fafc !important;
+    --neutral-100: #f1f5f9 !important;
+    --neutral-200: #e2e8f0 !important;
+    --neutral-300: #cbd5e1 !important;
+    --neutral-700: #334155 !important;
+    --neutral-800: #1e293b !important;
+    color: #1e293b !important;
+    background-color: #ffffff !important;
+}
+.dark textarea, .dark input[type="text"], .dark .wrap {
+    background: #ffffff !important;
+    color: #1e293b !important;
+    border-color: #e2e8f0 !important;
+}
+.dark label, .dark .label-wrap {
+    color: #475569 !important;
+}
+.dark .tab-nav button { color: #475569 !important; }
+.dark .tab-nav button.selected { color: #0f766e !important; }
+.dark .tab-nav { border-bottom-color: #e2e8f0 !important; }
+.dark .app-footer { color: #94a3b8 !important; border-top-color: #e2e8f0 !important; }
 
 """
 
@@ -403,8 +414,7 @@ def _tool_html(text):
 
 def _soap_html(soap_text):
     """
-    Convert SOAP text to animated HTML with section-by-section reveal.
-    Each S/O/A/P section gets its own div with staggered animation delay.
+    Convert SOAP text to styled HTML with section headers.
     """
     if not soap_text:
         return ""
@@ -701,7 +711,18 @@ def run_patient_analysis(age, sex, ethnicity, chief_complaint, duration,
 # ============================================================
 def build_app():
     with gr.Blocks(title="MedScribe") as app:
-
+        # Force light mode — prevent Gradio from ever switching to dark
+        gr.HTML(
+            '<script>'
+            'document.documentElement.classList.remove("dark");'
+            'document.body.classList.remove("dark");'
+            'new MutationObserver(function(m){'
+            '  document.documentElement.classList.remove("dark");'
+            '  document.body.classList.remove("dark");'
+            '}).observe(document.documentElement, {attributes:true, attributeFilter:["class"]});'
+            '</script>',
+            visible=False,
+        )
         # ── Header ──
         gr.HTML(
             '<div class="app-header">'
@@ -859,13 +880,13 @@ def build_app():
                 # Demographics row
                 gr.HTML('<div class="section-label">Demographics</div>')
                 with gr.Row():
-                    pa_age = gr.Textbox(label="Age", placeholder="e.g. 54", scale=1)
+                    pa_age = gr.Textbox(label="Age", placeholder="e.g. 54", value="58", scale=1)
                     pa_sex = gr.Dropdown(
                         label="Sex", choices=["", "Male", "Female", "Other"],
-                        value="", scale=1,
+                        value="Male", scale=1,
                     )
                     pa_ethnicity = gr.Textbox(
-                        label="Ethnicity", placeholder="e.g. South Asian", scale=1,
+                        label="Ethnicity", placeholder="e.g. South Asian", value="South Asian", scale=1,
                     )
 
                 # Current visit
@@ -873,11 +894,12 @@ def build_app():
                 pa_complaint = gr.Textbox(
                     label="Chief Complaint",
                     placeholder="e.g. Persistent fatigue and unexplained weight loss for 3 months",
+                    value="Persistent fatigue, unintentional 15-lb weight loss over 4 months, increased thirst and frequent urination",
                     lines=2,
                 )
                 pa_duration = gr.Textbox(
                     label="Duration / Onset",
-                    placeholder="e.g. 3 months, gradual onset",
+                    value="4 months, gradual onset, worsening over past 6 weeks",
                 )
 
                 # History
@@ -885,11 +907,12 @@ def build_app():
                 pa_medical = gr.Textbox(
                     label="Medical History",
                     placeholder="e.g. Type 2 diabetes (10 yrs), hypertension, GERD",
+                    value="Hypertension (12 yrs), hyperlipidemia, prediabetes (diagnosed 2 yrs ago), GERD, obesity (BMI 31)",
                     lines=2,
                 )
                 pa_surgical = gr.Textbox(
                     label="Surgical History",
-                    placeholder="e.g. Appendectomy (2015), knee arthroscopy (2020)",
+                    value="Cholecystectomy (2018), right inguinal hernia repair (2021)",
                 )
 
                 # Family history
@@ -898,6 +921,7 @@ def build_app():
                     label="Family History",
                     placeholder="e.g. Father: MI at 52, T2DM. Mother: breast cancer at 61. "
                     "Sister: Hashimoto's thyroiditis. Paternal grandfather: colon cancer.",
+                    value="Father: MI at 55, T2DM. Mother: T2DM, CKD stage 4. Brother: T2DM diagnosed at 42. Paternal uncle: pancreatic cancer at 63.",
                     lines=3,
                 )
 
@@ -907,11 +931,13 @@ def build_app():
                     pa_meds = gr.Textbox(
                         label="Current Medications",
                         placeholder="e.g. Metformin 1000mg BID, Lisinopril 20mg daily, Omeprazole 20mg",
+                        value="Lisinopril 20mg daily, Atorvastatin 40mg daily, Omeprazole 20mg daily, Metformin 500mg BID (started 6 months ago)",
                         lines=2, scale=2,
                     )
                     pa_allergies = gr.Textbox(
                         label="Allergies",
                         placeholder="e.g. Penicillin (rash), Sulfa (anaphylaxis)",
+                        value="ACE inhibitor cough (switched from enalapril), Sulfa (rash)",
                         lines=2, scale=1,
                     )
 
@@ -921,20 +947,21 @@ def build_app():
                     pa_smoking = gr.Dropdown(
                         label="Smoking",
                         choices=["", "Never", "Former", "Current — light", "Current — heavy"],
-                        value="", scale=1,
+                        value="Former", scale=1,
                     )
                     pa_alcohol = gr.Dropdown(
                         label="Alcohol",
                         choices=["", "None", "Social", "Moderate", "Heavy"],
-                        value="", scale=1,
+                        value="Social", scale=1,
                     )
                     pa_exercise = gr.Dropdown(
                         label="Exercise",
                         choices=["", "Sedentary", "Light", "Moderate", "Active"],
-                        value="", scale=1,
+                        value="Sedentary", scale=1,
                     )
                 pa_occupation = gr.Textbox(
                     label="Occupation", placeholder="e.g. Office worker, construction",
+                    value="Long-haul truck driver",
                 )
 
                 # Labs
@@ -942,6 +969,7 @@ def build_app():
                 pa_labs = gr.Textbox(
                     label="Recent Lab Results",
                     placeholder="e.g. A1C 7.4%, Cr 1.1, eGFR 68, TSH 6.8, CBC normal",
+                    value="A1C 9.2% (was 6.3% one year ago), FBG 243 mg/dL, Cr 1.4, eGFR 52, microalbumin/Cr ratio 85, LDL 142, triglycerides 310, TSH 5.8, CBC wnl",
                     lines=2,
                 )
 
