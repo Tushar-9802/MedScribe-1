@@ -216,7 +216,7 @@ class MedScribePipeline:
             f"SOAP NOTE:\n{soap_note}\n\n"
             "ICD-10-CM CODES:"
         )
-        return self.soap_gen.generate_freeform(prompt, max_new_tokens=200)
+        return self.soap_gen.generate_freeform(prompt, max_new_tokens=250)
 
     def patient_summary(self, soap_note):
         """Generate plain-language patient visit summary."""
@@ -228,11 +228,12 @@ class MedScribePipeline:
             f"SOAP NOTE:\n{soap_note}\n\n"
             "PATIENT SUMMARY:"
         )
-        return self.soap_gen.generate_freeform(prompt, max_new_tokens=250)
+        return self.soap_gen.generate_freeform(prompt, max_new_tokens=300)
 
     def completeness_check(self, soap_note):
         """Review SOAP note for documentation gaps."""
         prompt = (
+            "be Concise"
             "You are a clinical documentation quality reviewer. Review this SOAP "
             "note for documentation gaps. Check for:\n"
             "- Subjective complaints without corresponding objective findings\n"
@@ -249,6 +250,7 @@ class MedScribePipeline:
     def differential_diagnosis(self, soap_note):
         """Generate differential diagnosis list from SOAP note."""
         prompt = (
+            "be Concise"
             "You are a clinical reasoning assistant. Based on the following SOAP note, "
             "generate a ranked differential diagnosis list. For each diagnosis:\n"
             "- State the diagnosis\n"
@@ -263,6 +265,7 @@ class MedScribePipeline:
     def medication_check(self, soap_note):
         """Check medications mentioned for interactions and safety concerns."""
         prompt = (
+            "be Concise"
             "You are a clinical pharmacist assistant. Review the medications mentioned "
             "in this SOAP note. For each medication identified:\n"
             "- Note the medication and its indication (if clear)\n"

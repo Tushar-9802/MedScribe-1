@@ -68,12 +68,23 @@ EXAMPLE_TRANSCRIPTS = [
 # CUSTOM CSS — Modern light medical UI
 # ============================================================
 CUSTOM_CSS = """
+/* ── Layout Stability (Anti-Stutter) ── */
+html { 
+    overflow-y: scroll !important; /* Forces scrollbar to prevent lateral width snapping */
+}
+
+/* Fix audio component height to prevent vertical jumping upon upload */
+[data-testid="audio"] {
+    min-height: 160px !important; 
+}
+
 /* ── Base ── */
 .gradio-container {
     max-width: 1060px !important;
     margin: 0 auto !important;
     font-family: "Inter", "IBM Plex Sans", "Segoe UI", system-ui, sans-serif !important;
     background: #f8fafb !important;
+    transition: none !important;
 }
 
 /* ── Header ── */
@@ -95,46 +106,24 @@ CUSTOM_CSS = """
     margin: 4px 0 0 0;
     font-weight: 400;
 }
-.app-header .tagline {
-    font-size: 11px;
-    color: #94a3b8;
-    margin: 2px 0 0 0;
-}
 
-/* ── Status pill ── */
+/* ── Status Pill ── */
 .status-pill {
     display: inline-block;
     min-height: 32px;
     max-height: 32px;
-    overflow: hidden;
     border-radius: 20px;
     padding: 6px 16px;
     font-size: 12px;
     font-weight: 500;
-    margin-bottom: 16px;
-    box-sizing: border-box;
-    transition: all 0.2s ease;
     background: #f1f5f9;
     border: 1px solid #e2e8f0;
     color: #64748b;
+    transition: all 0.2s ease !important;
 }
-.status-pill.ready {
-    background: #ecfdf5;
-    border-color: #a7f3d0;
-    color: #065f46;
-}
-.status-pill.processing {
-    background: #fffbeb;
-    border-color: #fde68a;
-    color: #92400e;
-}
-.status-pill.error {
-    background: #fef2f2;
-    border-color: #fecaca;
-    color: #991b1b;
-}
+.status-pill.ready { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
 
-/* ── Section labels ── */
+/* ── Section Labels ── */
 .section-label {
     font-size: 11px;
     font-weight: 700;
@@ -142,60 +131,48 @@ CUSTOM_CSS = """
     text-transform: uppercase;
     letter-spacing: 1px;
     margin: 20px 0 8px 0;
-    padding-bottom: 0;
 }
 
-/* ── Cards ── */
-.output-card {
+/* ── SOAP & Tool Output ── */
+.soap-card, .tool-output, .analysis-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
-    padding: 16px 20px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     color: #1e293b !important;
 }
-
-/* ── SOAP card (no animation — eliminates stutter) ── */
 .soap-card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
     padding: 20px 24px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    font-family: "IBM Plex Mono", "Consolas", monospace;
+    font-family: "IBM Plex Mono", monospace;
     font-size: 13px;
     line-height: 1.75;
-    color: #1e293b !important;
     white-space: pre-wrap;
 }
-.soap-section-header {
-    font-weight: 700;
-    color: #0f766e;
-    font-size: 13px;
-    margin-top: 14px;
-    margin-bottom: 4px;
-    padding-bottom: 3px;
-    border-bottom: 1px solid #e2e8f0;
-    font-family: "Inter", "IBM Plex Sans", system-ui, sans-serif;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-.soap-section:first-child .soap-section-header { margin-top: 0; }
 
-/* ── Tool output ── */
-.tool-output {
-    font-family: "Inter", "IBM Plex Sans", system-ui, sans-serif;
-    font-size: 13px;
-    line-height: 1.7;
-    padding: 16px 20px;
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    white-space: pre-wrap;
-    color: #1e293b !important;
+/* ── Buttons ── */
+.primary-btn {
+    background: #0d9488 !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
 }
 
+/* ══ ANTI-STUTTER: Suppress Loading Overlays ══ */
+.pending, .generating, .translucent {
+    opacity: 1 !important;
+    animation: none !important;
+    border: none !important;
+}
+.eta-bar, .progress-bar, .loader, .svelte-spinner {
+    display: none !important;
+    height: 0 !important;
+}
+div[data-testid] .wrap {
+    transition: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
 /* ── Analysis result cards ── */
 .analysis-card {
     background: #ffffff;
@@ -208,6 +185,7 @@ CUSTOM_CSS = """
     line-height: 1.65;
     font-size: 13px;
 }
+
 .analysis-card-header {
     font-weight: 700;
     font-size: 12px;
@@ -217,106 +195,22 @@ CUSTOM_CSS = """
     padding-bottom: 6px;
     border-bottom: 1px solid #f1f5f9;
 }
-.card-risk { border-left: 3px solid #f59e0b; }
+
+/* ── Triage Colors ── */
+.card-risk { border-left: 4px solid #f59e0b; } /* Amber */
 .card-risk .analysis-card-header { color: #b45309; }
-.card-ddx { border-left: 3px solid #6366f1; }
+
+.card-ddx { border-left: 4px solid #6366f1; } /* Indigo */
 .card-ddx .analysis-card-header { color: #4338ca; }
-.card-screening { border-left: 3px solid #0d9488; }
+
+.card-screening { border-left: 4px solid #0d9488; } /* Teal */
 .card-screening .analysis-card-header { color: #0f766e; }
-.card-redflags { border-left: 3px solid #ef4444; }
+
+.card-redflags { border-left: 4px solid #ef4444; } /* Red */
 .card-redflags .analysis-card-header { color: #dc2626; }
-.card-questions { border-left: 3px solid #8b5cf6; }
+
+.card-questions { border-left: 4px solid #8b5cf6; } /* Purple */
 .card-questions .analysis-card-header { color: #7c3aed; }
-
-/* ── Buttons ── */
-.primary-btn {
-    background: #0d9488 !important;
-    border: none !important;
-    color: white !important;
-    font-weight: 600 !important;
-    border-radius: 8px !important;
-    transition: background 0.2s !important;
-}
-.primary-btn:hover {
-    background: #0f766e !important;
-}
-
-/* ── Tabs ── */
-.tab-nav button {
-    font-weight: 600 !important;
-    font-size: 13px !important;
-    border-radius: 8px 8px 0 0 !important;
-    color: #475569 !important;
-    background: transparent !important;
-}
-.tab-nav button.selected {
-    color: #0f766e !important;
-    border-bottom: 2px solid #0d9488 !important;
-    background: transparent !important;
-}
-.tab-nav button:hover {
-    color: #0f766e !important;
-}
-/* Force tab nav background to be light */
-.tab-nav {
-    background: transparent !important;
-    border-bottom: 1px solid #e2e8f0 !important;
-}
-
-/* ── Footer ── */
-.app-footer {
-    text-align: center;
-    padding: 16px 0;
-    margin-top: 24px;
-    border-top: 1px solid #e2e8f0;
-    font-size: 11px;
-    color: #94a3b8;
-}
-
-/* ── Metrics row ── */
-.metric-box {
-    text-align: center;
-    background: #f8fafb;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 8px 12px;
-}
-
-/* ══ ANTI-STUTTER — Suppress ALL Gradio loading/generating animations ══ */
-.pending, .generating, .translucent {
-    opacity: 1 !important;
-    animation: none !important;
-    border: none !important;
-    pointer-events: auto !important;
-}
-.wrap.generating, .wrap.pending {
-    border: none !important;
-    animation: none !important;
-    opacity: 1 !important;
-}
-.eta-bar, .progress-bar, .meta-text, .progress-text {
-    display: none !important;
-}
-div[data-testid] .wrap {
-    transition: none !important;
-}
-.gradio-container > .main {
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow-x: hidden !important;
-}
-.contain {
-    overflow: auto !important;
-    scroll-behavior: auto !important;
-}
-/* Kill Gradio's default pulsing border on ANY element */
-* {
-    animation-name: none !important;
-}
-.status-pill {
-    animation: none !important;
-    transition: all 0.2s ease !important;
-}
 
 /* ── Force light mode on all Gradio elements ── */
 .gradio-container, .gradio-container *,
@@ -677,6 +571,7 @@ def run_patient_analysis(age, sex, ethnicity, chief_complaint, duration,
         "following profile. Analyze this comprehensively and provide insights a busy "
         "clinician might miss.\n\n"
         f"PATIENT PROFILE:\n{patient_profile}\n\n"
+        "Be concise. Use 2-3 bullet points per section."
         "Provide your analysis in exactly these 5 sections:\n\n"
         "RISK ASSESSMENT:\n"
         "Based on demographics, history, and family history, list conditions this "
@@ -748,6 +643,7 @@ def build_app():
                     sources=["microphone", "upload"],
                     type="filepath",
                     label="Record or upload clinical dictation",
+                    container = False
                 )
                 voice_btn = gr.Button(
                     "Transcribe & Generate SOAP",
