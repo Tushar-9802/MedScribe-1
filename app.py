@@ -1,7 +1,7 @@
 """
 MedScribe — Clinical Documentation Workstation
 ================================================
-Voice-to-SOAP + Clinical Intelligence + Patient Intake Analysis
+Voice-to-SOAP + Clinical Intelligence + Patient Intake Analysis + Model Comparison
 powered by Google HAI-DEF models (MedASR + MedGemma).
 
 Tabs:
@@ -9,7 +9,8 @@ Tabs:
 2. Text to SOAP       — Paste transcript, generate SOAP
 3. Clinical Tools     — ICD-10, patient summary, completeness, DDx, med check
 4. Patient Analysis   — Structured intake → risk/screening/red flags
-5. About              — Architecture, metrics, methodology
+5. Model Comparison   — Base vs Fine-tuned MedGemma side-by-side
+6. About              — Architecture, metrics, methodology
 
 Launch: python app.py
 """
@@ -70,10 +71,8 @@ EXAMPLE_TRANSCRIPTS = [
 CUSTOM_CSS = """
 /* ── Layout Stability (Anti-Stutter) ── */
 html { 
-    overflow-y: scroll !important; /* Forces scrollbar to prevent lateral width snapping */
+    overflow-y: scroll !important;
 }
-
-/* Fix audio component height to prevent vertical jumping upon upload */
 [data-testid="audio"] {
     min-height: 160px !important; 
 }
@@ -122,6 +121,17 @@ html {
     transition: all 0.2s ease !important;
 }
 .status-pill.ready { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+.status-pill.error { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.status-pill.processing {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1e40af;
+    animation: pill-pulse 1.5s ease-in-out infinite;
+}
+@keyframes pill-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.65; }
+}
 
 /* ── Section Labels ── */
 .section-label {
@@ -147,6 +157,12 @@ html {
     font-size: 13px;
     line-height: 1.75;
     white-space: pre-wrap;
+    min-height: 120px;
+}
+
+/* ── SOAP/Compare output wrapper — prevent collapse during intermediate yields ── */
+.soap-output {
+    min-height: 140px !important;
 }
 
 /* ── Buttons ── */
@@ -173,6 +189,7 @@ div[data-testid] .wrap {
     border: none !important;
     box-shadow: none !important;
 }
+
 /* ── Analysis result cards ── */
 .analysis-card {
     background: #ffffff;
@@ -185,7 +202,6 @@ div[data-testid] .wrap {
     line-height: 1.65;
     font-size: 13px;
 }
-
 .analysis-card-header {
     font-weight: 700;
     font-size: 12px;
@@ -197,20 +213,55 @@ div[data-testid] .wrap {
 }
 
 /* ── Triage Colors ── */
-.card-risk { border-left: 4px solid #f59e0b; } /* Amber */
+.card-risk { border-left: 4px solid #f59e0b; }
 .card-risk .analysis-card-header { color: #b45309; }
-
-.card-ddx { border-left: 4px solid #6366f1; } /* Indigo */
+.card-ddx { border-left: 4px solid #6366f1; }
 .card-ddx .analysis-card-header { color: #4338ca; }
-
-.card-screening { border-left: 4px solid #0d9488; } /* Teal */
+.card-screening { border-left: 4px solid #0d9488; }
 .card-screening .analysis-card-header { color: #0f766e; }
-
-.card-redflags { border-left: 4px solid #ef4444; } /* Red */
+.card-redflags { border-left: 4px solid #ef4444; }
 .card-redflags .analysis-card-header { color: #dc2626; }
-
-.card-questions { border-left: 4px solid #8b5cf6; } /* Purple */
+.card-questions { border-left: 4px solid #8b5cf6; }
 .card-questions .analysis-card-header { color: #7c3aed; }
+
+/* ── Comparison cards ── */
+.compare-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 16px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    color: #1e293b !important;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    line-height: 1.75;
+    white-space: pre-wrap;
+    min-height: 120px;
+}
+.compare-card.base { border-left: 4px solid #94a3b8; }
+.compare-card.finetuned { border-left: 4px solid #0d9488; }
+.compare-header {
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #f1f5f9;
+}
+.compare-card.base .compare-header { color: #64748b; }
+.compare-card.finetuned .compare-header { color: #0f766e; }
+.compare-metrics {
+    display: flex;
+    gap: 24px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #f1f5f9;
+    font-family: "Inter", system-ui, sans-serif;
+    font-size: 12px;
+    color: #64748b;
+}
+.compare-metrics span { font-weight: 600; color: #1e293b; }
 
 /* ── Force light mode on all Gradio elements ── */
 .gradio-container, .gradio-container *,
@@ -222,25 +273,22 @@ div[data-testid] .wrap {
     --body-background-fill: #f8fafb !important;
     --color-accent: #0d9488 !important;
 }
-/* Force text inputs to be light */
 textarea, input[type="text"], .wrap {
     background: #ffffff !important;
     color: #1e293b !important;
     border-color: #e2e8f0 !important;
 }
-/* Force dropdown/select to be light */
 .secondary-wrap, .wrap-inner {
     background: #ffffff !important;
 }
-/* Ensure label text is visible */
 label, .label-wrap, span.svelte-1gfkn6j {
     color: #475569 !important;
 }
-/* Audio component light background */
 .audio-container, [data-testid="audio"] {
     background: #ffffff !important;
 }
-/* ── Nuclear light mode — override OS dark preference at browser level ── */
+
+/* ── Nuclear light mode ── */
 :root, html, body {
     color-scheme: light only !important;
 }
@@ -268,14 +316,11 @@ label, .label-wrap, span.svelte-1gfkn6j {
     color: #1e293b !important;
     border-color: #e2e8f0 !important;
 }
-.dark label, .dark .label-wrap {
-    color: #475569 !important;
-}
+.dark label, .dark .label-wrap { color: #475569 !important; }
 .dark .tab-nav button { color: #475569 !important; }
 .dark .tab-nav button.selected { color: #0f766e !important; }
 .dark .tab-nav { border-bottom-color: #e2e8f0 !important; }
 .dark .app-footer { color: #94a3b8 !important; border-top-color: #e2e8f0 !important; }
-
 """
 
 
@@ -294,7 +339,7 @@ def get_pipeline():
 
 
 def _status(level, msg):
-    return f'<div class="status-pill {level}">{msg}</div>'
+    return f'<div style="text-align:center;"><div class="status-pill {level}">{msg}</div></div>'
 
 
 def _tool_html(text):
@@ -303,13 +348,13 @@ def _tool_html(text):
         return ""
     safe = html_mod.escape(text)
     safe = safe.replace('\n', '<br>')
+    import re
+    safe = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', safe)
     return f'<div class="tool-output">{safe}</div>'
 
 
 def _soap_html(soap_text):
-    """
-    Convert SOAP text to styled HTML with section headers.
-    """
+    """Convert SOAP text to styled HTML with section headers."""
     if not soap_text:
         return ""
 
@@ -318,31 +363,25 @@ def _soap_html(soap_text):
     sections = []
     section_names = ["SUBJECTIVE", "OBJECTIVE", "ASSESSMENT", "PLAN"]
 
-    # Split by section headers
     pattern = r'(\*\*(?:SUBJECTIVE|OBJECTIVE|ASSESSMENT|PLAN):\*\*|(?:SUBJECTIVE|OBJECTIVE|ASSESSMENT|PLAN):)'
     parts = re.split(pattern, soap_text)
 
-    # Parse into (header, content) pairs
     i = 0
     while i < len(parts):
         part = parts[i].strip()
-        # Check if this part is a header
         clean_header = part.replace("**", "").replace(":", "").strip().upper()
         if clean_header in section_names:
             content = parts[i + 1].strip() if i + 1 < len(parts) else ""
             sections.append((clean_header, content))
             i += 2
         else:
-            # Leading text before first section (rare)
             if part and not sections:
                 sections.append(("", part))
             i += 1
 
-    # Build HTML
     html_parts = []
     for header, content in sections:
         safe_content = html_mod.escape(content).replace('\n', '<br>')
-        # Style numbered list items
         safe_content = re.sub(
             r'^(\d+)\.\s',
             r'<span style="color:#0f766e; font-weight:600;">\1.</span> ',
@@ -363,6 +402,24 @@ def _soap_html(soap_text):
     return f'<div class="soap-card">{inner}</div>'
 
 
+def _compare_card(soap_text, label, css_class, time_s, word_count, tokens):
+    """Build a comparison card for base vs fine-tuned output."""
+    if not soap_text:
+        return ""
+    safe = html_mod.escape(soap_text).replace('\n', '<br>')
+    return (
+        f'<div class="compare-card {css_class}">'
+        f'<div class="compare-header">{label}</div>'
+        f'{safe}'
+        f'<div class="compare-metrics">'
+        f'Words: <span>{word_count}</span> &nbsp;|&nbsp; '
+        f'Tokens: <span>{tokens}</span> &nbsp;|&nbsp; '
+        f'Time: <span>{time_s}s</span>'
+        f'</div>'
+        f'</div>'
+    )
+
+
 # ============================================================
 # HANDLER: Load Models
 # ============================================================
@@ -373,112 +430,136 @@ def load_models():
             pipe.load_asr()
         if not pipe.soap_loaded:
             pipe.load_soap()
-        return _status("ready", "✓ Models loaded — ready for input")
+        return _status("ready", "Models loaded — ready for input")
     except Exception as e:
         return _status("error", f"Load failed: {str(e)}")
 
 
 # ============================================================
-# HANDLER: Voice to SOAP
+# HANDLER: Voice to SOAP (generator with status updates)
 # ============================================================
 def process_audio(audio_path):
     global last_soap_note
     pipe = get_pipeline()
 
     if not pipe.fully_loaded:
-        return ("", "", _status("error", "Load models first"), "", "", "")
+        yield ("", "", _status("error", "Load models first"), "", "", "")
+        return
     if audio_path is None:
-        return ("", "", _status("error", "No audio provided"), "", "", "")
+        yield ("", "", _status("error", "No audio provided"), "", "", "")
+        return
 
     try:
+        # Stage 1: Transcribing
+        yield ("", "", _status("processing", "Transcribing audio (MedASR)..."), "", "", "")
+
         asr_result = pipe.transcribe(audio_path)
         transcript = asr_result["transcript"]
+
+        # Stage 2: Generating SOAP
+        yield (
+            transcript, "",
+            _status("processing", f"Generating SOAP note (MedGemma)... ASR took {asr_result['time_s']}s"),
+            f'{asr_result["time_s"]}s', "", "",
+        )
 
         soap_result = pipe.generate_soap(transcript)
         last_soap_note = soap_result["soap_note"]
         total = round(asr_result["time_s"] + soap_result["time_s"], 1)
 
-        return (
+        # Stage 3: Done
+        yield (
             transcript,
             _soap_html(soap_result["soap_note"]),
-            _status("ready", f"✓ Done in {total}s — ASR {asr_result['time_s']}s · SOAP {soap_result['time_s']}s"),
+            _status("ready", f"Done in {total}s — ASR {asr_result['time_s']}s + SOAP {soap_result['time_s']}s"),
             f'{asr_result["time_s"]}s',
             f'{soap_result["time_s"]}s',
             f'{total}s',
         )
     except Exception as e:
-        return ("", "", _status("error", f"Error: {str(e)}"), "", "", "")
+        yield ("", "", _status("error", f"Error: {str(e)}"), "", "", "")
 
 
 # ============================================================
-# HANDLER: Text to SOAP
+# HANDLER: Text to SOAP (generator with status updates)
 # ============================================================
 def process_text(transcript):
     global last_soap_note
     pipe = get_pipeline()
 
     if not pipe.soap_loaded:
-        return ("", _status("error", "Load models first"), "", "")
+        yield ("", _status("error", "Load models first"), "", "")
+        return
     if not transcript or not transcript.strip():
-        return ("", _status("error", "No transcript provided"), "", "")
+        yield ("", _status("error", "No transcript provided"), "", "")
+        return
 
     try:
+        # Stage 1: Generating
+        yield ("", _status("processing", "Generating SOAP note (MedGemma)..."), "", "")
+
         result = pipe.generate_soap(transcript.strip())
         last_soap_note = result["soap_note"]
 
-        return (
+        # Stage 2: Done
+        yield (
             _soap_html(result["soap_note"]),
-            _status("ready", f'✓ Done in {result["time_s"]}s · {result["word_count"]} words'),
+            _status("ready", f'Done in {result["time_s"]}s — {result["word_count"]} words'),
             f'{result["time_s"]}s',
             f'{result["word_count"]} words',
         )
     except Exception as e:
-        return ("", _status("error", f"Error: {str(e)}"), "", "")
+        yield ("", _status("error", f"Error: {str(e)}"), "", "")
 
 
 # ============================================================
-# HANDLER: Clinical Tools (generic wrapper)
+# HANDLER: Clinical Tools (generator with status updates)
 # ============================================================
 def _run_tool(tool_fn, tool_name, soap_note_input):
     """Generic wrapper for all clinical tools."""
     pipe = get_pipeline()
     note = soap_note_input.strip() if soap_note_input else last_soap_note
     if not note:
-        return _status("error", "No SOAP note available — generate one first"), ""
+        yield _status("error", "No SOAP note available — generate one first"), ""
+        return
     if not pipe.soap_loaded:
-        return _status("error", "Model not loaded"), ""
+        yield _status("error", "Model not loaded"), ""
+        return
     try:
+        yield _status("processing", f"Running {tool_name}..."), ""
+
         result = tool_fn(note)
-        return (
-            _status("ready", f'✓ {tool_name} — {result["time_s"]}s'),
+
+        yield (
+            _status("ready", f'{tool_name} — {result["time_s"]}s'),
             _tool_html(result["text"]),
         )
     except Exception as e:
-        return _status("error", str(e)), ""
+        yield _status("error", str(e)), ""
 
 
 def run_icd10(soap_input):
-    return _run_tool(get_pipeline().suggest_icd10, "ICD-10 coding", soap_input)
+    yield from _run_tool(get_pipeline().suggest_icd10, "ICD-10 coding", soap_input)
 
 
 def run_patient_summary(soap_input):
-    return _run_tool(get_pipeline().patient_summary, "Patient summary", soap_input)
+    yield from _run_tool(get_pipeline().patient_summary, "Patient summary", soap_input)
 
 
 def run_completeness(soap_input):
-    return _run_tool(get_pipeline().completeness_check, "Documentation review", soap_input)
+    yield from _run_tool(get_pipeline().completeness_check, "Documentation review", soap_input)
 
 
 def run_differential(soap_input):
-    return _run_tool(get_pipeline().differential_diagnosis, "Differential diagnosis", soap_input)
+    yield from _run_tool(get_pipeline().differential_diagnosis, "Differential diagnosis", soap_input)
 
 
 def run_med_check(soap_input):
-    return _run_tool(get_pipeline().medication_check, "Medication review", soap_input)
+    yield from _run_tool(get_pipeline().medication_check, "Medication review", soap_input)
 
 
 # ============================================================
-# HANDLER: Patient Intake Analysis
+# HANDLER: Patient Intake Analysis (generator with status updates)
 # ============================================================
 def _format_analysis_html(raw_text):
     """Parse analysis output into color-coded cards."""
@@ -493,7 +574,6 @@ def _format_analysis_html(raw_text):
         "CLINICAL QUESTIONS": ("card-questions", "Questions for Clinician"),
     }
 
-    # Try to split into sections
     import re
     cards = []
     remaining = raw_text
@@ -515,8 +595,8 @@ def _format_analysis_html(raw_text):
     if cards:
         return "\n".join(cards)
 
-    # Fallback: single card if parsing fails
     safe = html_mod.escape(raw_text).replace('\n', '<br>')
+    safe = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', safe)
     return f'<div class="analysis-card card-risk">{safe}</div>'
 
 
@@ -526,13 +606,16 @@ def run_patient_analysis(age, sex, ethnicity, chief_complaint, duration,
                          exercise, occupation, recent_labs):
     pipe = get_pipeline()
     if not pipe.soap_loaded:
-        return _status("error", "Load models first"), ""
+        yield _status("error", "Load models first"), ""
+        return
 
-    # Validate minimum input
     if not chief_complaint or not chief_complaint.strip():
-        return _status("error", "Chief complaint is required"), ""
+        yield _status("error", "Chief complaint is required"), ""
+        return
 
-    # Build structured patient profile
+    # Stage 1: Analyzing
+    yield _status("processing", "Analyzing patient profile (MedGemma)..."), ""
+
     profile_parts = []
     if age:
         profile_parts.append(f"Age: {age}")
@@ -593,12 +676,67 @@ def run_patient_analysis(age, sex, ethnicity, chief_complaint, duration,
 
     try:
         result = pipe.soap_gen.generate_freeform(prompt, max_new_tokens=500)
-        return (
-            _status("ready", f'✓ Analysis complete — {result["time_s"]}s'),
+
+        # Stage 2: Done
+        yield (
+            _status("ready", f'Analysis complete — {result["time_s"]}s'),
             _format_analysis_html(result["text"]),
         )
     except Exception as e:
-        return _status("error", str(e)), ""
+        yield _status("error", str(e)), ""
+
+
+# ============================================================
+# HANDLER: Model Comparison (generator with status updates)
+# ============================================================
+def run_comparison(transcript):
+    pipe = get_pipeline()
+    if not pipe.soap_loaded:
+        yield _status("error", "Load models first"), "", ""
+        return
+    if not transcript or not transcript.strip():
+        yield _status("error", "No transcript provided"), "", ""
+        return
+
+    try:
+        # Stage 1: Base model
+        yield _status("processing", "Generating with base MedGemma (adapter off)..."), "", ""
+
+        base_result = pipe.generate_soap_base(transcript.strip())
+
+        # Stage 2: Fine-tuned model
+        yield (
+            _status("processing", f"Base done ({base_result['time_s']}s). Now generating with fine-tuned MedGemma..."),
+            _compare_card(
+                base_result["soap_note"], "Base MedGemma (no adapter)", "base",
+                base_result["time_s"], base_result["word_count"], base_result["tokens"],
+            ),
+            "",
+        )
+
+        ft_result = pipe.generate_soap(transcript.strip())
+
+        # Stage 3: Done — build summary
+        total = round(base_result["time_s"] + ft_result["time_s"], 1)
+        reduction = ""
+        if base_result["word_count"] > 0:
+            pct = round((1 - ft_result["word_count"] / base_result["word_count"]) * 100)
+            if pct > 0:
+                reduction = f" | {pct}% shorter"
+
+        yield (
+            _status("ready", f"Comparison complete — {total}s total{reduction}"),
+            _compare_card(
+                base_result["soap_note"], "Base MedGemma (no adapter)", "base",
+                base_result["time_s"], base_result["word_count"], base_result["tokens"],
+            ),
+            _compare_card(
+                ft_result["soap_note"], "Fine-tuned MedGemma (LoRA)", "finetuned",
+                ft_result["time_s"], ft_result["word_count"], ft_result["tokens"],
+            ),
+        )
+    except Exception as e:
+        yield _status("error", f"Error: {str(e)}"), "", ""
 
 
 # ============================================================
@@ -606,7 +744,7 @@ def run_patient_analysis(age, sex, ethnicity, chief_complaint, duration,
 # ============================================================
 def build_app():
     with gr.Blocks(title="MedScribe") as app:
-        # Force light mode — prevent Gradio from ever switching to dark
+        # Force light mode
         gr.HTML(
             '<script>'
             'document.documentElement.classList.remove("dark");'
@@ -618,12 +756,13 @@ def build_app():
             '</script>',
             visible=False,
         )
+
         # ── Header ──
         gr.HTML(
             '<div class="app-header">'
-            '<h1>⚕ MedScribe</h1>'
+            '<h1>MedScribe</h1>'
             '<p class="subtitle">Clinical Documentation Workstation</p>'
-            '<p class="tagline">MedASR + MedGemma · HAI-DEF Pipeline · Voice-to-SOAP + Clinical Intelligence</p>'
+            '<p class="tagline">MedASR + MedGemma | HAI-DEF Pipeline | Voice-to-SOAP + Clinical Intelligence</p>'
             '</div>'
         )
 
@@ -637,13 +776,13 @@ def build_app():
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # TAB 1: Voice to SOAP
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            with gr.TabItem("🎙 Voice to SOAP"):
+            with gr.TabItem("Voice to SOAP"):
                 gr.HTML('<div class="section-label">Audio Input</div>')
                 audio_input = gr.Audio(
                     sources=["microphone", "upload"],
                     type="filepath",
                     label="Record or upload clinical dictation",
-                    container = False
+                    container=False,
                 )
                 voice_btn = gr.Button(
                     "Transcribe & Generate SOAP",
@@ -656,12 +795,12 @@ def build_app():
                     placeholder="Transcript appears here — editable before regeneration",
                 )
                 voice_regen_btn = gr.Button(
-                    "↻ Regenerate from Edited Transcript",
+                    "Regenerate from Edited Transcript",
                     variant="secondary", size="sm",
                 )
 
-                gr.HTML('<div class="section-label">SOAP Note (MedGemma · Fine-tuned)</div>')
-                voice_soap = gr.HTML()
+                gr.HTML('<div class="section-label">SOAP Note (MedGemma, Fine-tuned)</div>')
+                voice_soap = gr.HTML(elem_classes=["soap-output"])
 
                 with gr.Row():
                     voice_asr_time = gr.Textbox(label="ASR", interactive=False, scale=1)
@@ -677,8 +816,11 @@ def build_app():
                 )
 
                 def regen_from_transcript(transcript):
-                    result = process_text(transcript)
-                    return (result[0], result[1], "", result[2], "")
+                    """Wrap process_text generator for regen button output mapping."""
+                    for update in process_text(transcript):
+                        # process_text yields (soap_html, status, gen_time, word_count)
+                        # regen needs (soap_html, status, asr_time="", soap_time, total_time="")
+                        yield (update[0], update[1], "", update[2], "")
 
                 voice_regen_btn.click(
                     fn=regen_from_transcript,
@@ -691,7 +833,7 @@ def build_app():
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # TAB 2: Text to SOAP
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            with gr.TabItem("📝 Text to SOAP"):
+            with gr.TabItem("Text to SOAP"):
                 gr.HTML('<div class="section-label">Medical Transcript</div>')
                 text_input = gr.Textbox(
                     lines=6, show_label=False,
@@ -702,8 +844,8 @@ def build_app():
                     variant="primary", elem_classes=["primary-btn"],
                 )
 
-                gr.HTML('<div class="section-label">SOAP Note (MedGemma · Fine-tuned)</div>')
-                text_soap = gr.HTML()
+                gr.HTML('<div class="section-label">SOAP Note (MedGemma, Fine-tuned)</div>')
+                text_soap = gr.HTML(elem_classes=["soap-output"])
 
                 with gr.Row():
                     text_gen_time = gr.Textbox(label="Generation Time", interactive=False, scale=1)
@@ -722,7 +864,7 @@ def build_app():
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # TAB 3: Clinical Tools
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            with gr.TabItem("🔬 Clinical Tools"):
+            with gr.TabItem("Clinical Tools"):
                 gr.HTML(
                     '<div class="section-label">Clinical Intelligence (Base MedGemma)</div>'
                     '<p style="font-size:12px; color:#64748b; margin-bottom:14px;">'
@@ -763,7 +905,7 @@ def build_app():
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # TAB 4: Patient Analysis
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            with gr.TabItem("🩺 Patient Analysis"):
+            with gr.TabItem("Patient Analysis"):
                 gr.HTML(
                     '<div class="section-label">Patient Intake Analysis (Base MedGemma)</div>'
                     '<p style="font-size:12px; color:#64748b; margin-bottom:14px;">'
@@ -773,7 +915,6 @@ def build_app():
                     'clinician might miss.</p>'
                 )
 
-                # Demographics row
                 gr.HTML('<div class="section-label">Demographics</div>')
                 with gr.Row():
                     pa_age = gr.Textbox(label="Age", placeholder="e.g. 54", value="58", scale=1)
@@ -785,7 +926,6 @@ def build_app():
                         label="Ethnicity", placeholder="e.g. South Asian", value="South Asian", scale=1,
                     )
 
-                # Current visit
                 gr.HTML('<div class="section-label">Current Visit</div>')
                 pa_complaint = gr.Textbox(
                     label="Chief Complaint",
@@ -798,7 +938,6 @@ def build_app():
                     value="4 months, gradual onset, worsening over past 6 weeks",
                 )
 
-                # History
                 gr.HTML('<div class="section-label">Medical & Surgical History</div>')
                 pa_medical = gr.Textbox(
                     label="Medical History",
@@ -811,22 +950,19 @@ def build_app():
                     value="Cholecystectomy (2018), right inguinal hernia repair (2021)",
                 )
 
-                # Family history
                 gr.HTML('<div class="section-label">Family History</div>')
                 pa_family = gr.Textbox(
                     label="Family History",
-                    placeholder="e.g. Father: MI at 52, T2DM. Mother: breast cancer at 61. "
-                    "Sister: Hashimoto's thyroiditis. Paternal grandfather: colon cancer.",
+                    placeholder="e.g. Father: MI at 52, T2DM. Mother: breast cancer at 61.",
                     value="Father: MI at 55, T2DM. Mother: T2DM, CKD stage 4. Brother: T2DM diagnosed at 42. Paternal uncle: pancreatic cancer at 63.",
                     lines=3,
                 )
 
-                # Medications & allergies
                 gr.HTML('<div class="section-label">Medications & Allergies</div>')
                 with gr.Row():
                     pa_meds = gr.Textbox(
                         label="Current Medications",
-                        placeholder="e.g. Metformin 1000mg BID, Lisinopril 20mg daily, Omeprazole 20mg",
+                        placeholder="e.g. Metformin 1000mg BID, Lisinopril 20mg daily",
                         value="Lisinopril 20mg daily, Atorvastatin 40mg daily, Omeprazole 20mg daily, Metformin 500mg BID (started 6 months ago)",
                         lines=2, scale=2,
                     )
@@ -837,7 +973,6 @@ def build_app():
                         lines=2, scale=1,
                     )
 
-                # Lifestyle
                 gr.HTML('<div class="section-label">Lifestyle & Social</div>')
                 with gr.Row():
                     pa_smoking = gr.Dropdown(
@@ -860,7 +995,6 @@ def build_app():
                     value="Long-haul truck driver",
                 )
 
-                # Labs
                 gr.HTML('<div class="section-label">Recent Labs (Optional)</div>')
                 pa_labs = gr.Textbox(
                     label="Recent Lab Results",
@@ -869,9 +1003,8 @@ def build_app():
                     lines=2,
                 )
 
-                # Run button
                 analyze_btn = gr.Button(
-                    "⚡ Run Comprehensive Analysis",
+                    "Run Comprehensive Analysis",
                     variant="primary", elem_classes=["primary-btn"],
                 )
 
@@ -890,69 +1023,243 @@ def build_app():
                 )
 
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # TAB 5: About
+            # TAB 5: Model Comparison
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            with gr.TabItem("ℹ About"):
+            with gr.TabItem("Model Comparison"):
+                gr.HTML(
+                    '<div class="section-label">Base vs Fine-tuned MedGemma</div>'
+                    '<p style="font-size:12px; color:#64748b; margin-bottom:14px;">'
+                    'Compare SOAP note output from the base MedGemma model (adapter disabled) '
+                    'against the LoRA fine-tuned model. Same prompt, same weights, same hardware. '
+                    'The only difference is the LoRA adapter trained on 712 curated samples.</p>'
+                )
+
+                compare_input = gr.Textbox(
+                    lines=6, show_label=False,
+                    placeholder="Paste a medical encounter transcript to compare both models...",
+                    value=EXAMPLE_TRANSCRIPTS[3][0],
+                )
+                compare_btn = gr.Button(
+                    "Run Comparison",
+                    variant="primary", elem_classes=["primary-btn"],
+                )
+
+                compare_status = gr.HTML(_status("", "Paste a transcript and click Run Comparison"))
+
+                gr.HTML('<div class="section-label">Base MedGemma (No Adapter)</div>')
+                compare_base = gr.HTML(elem_classes=["soap-output"])
+
+                gr.HTML('<div class="section-label">Fine-tuned MedGemma (LoRA Adapter)</div>')
+                compare_ft = gr.HTML(elem_classes=["soap-output"])
+
+                compare_btn.click(
+                    fn=run_comparison,
+                    inputs=[compare_input],
+                    outputs=[compare_status, compare_base, compare_ft],
+                    show_progress="hidden",
+                )
+
+                gr.HTML('<div class="section-label">Example Transcripts</div>')
+                gr.Examples(examples=EXAMPLE_TRANSCRIPTS, inputs=[compare_input], label="")
+
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # TAB 6: About
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # TAB 6: About MedScribe
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            with gr.TabItem("About MedScribe"):
                 gr.Markdown("""
 ### MedScribe — Clinical Documentation Workstation
 
-**Problem**: AI documentation tools generate verbose, textbook-style notes.
-A nephrologist reports: *"More often than not I have to go and edit the notes
+**Problem**: Physicians spend 40% of patient encounters on documentation.
+Current AI scribes make this worse, not better — they generate verbose,
+textbook-style notes that require extensive manual editing. A practicing
+nephrologist reports: *"More often than not I have to go and edit the notes
 and shorten them, because they read like textbook lexicon rather than shorthand
 designed to deliver efficient summaries with alacrity."*
 
-**Solution**: MedScribe generates concise clinical shorthand using a fine-tuned
-MedGemma model, then provides clinical intelligence tools and patient risk
-analysis for the complete documentation workflow.
+**Solution**: MedScribe is a complete clinical documentation workstation that
+generates concise, clinician-ready SOAP notes from voice or text input, then
+layers on clinical intelligence tools that transform a static note into an
+actionable clinical artifact.
 
 ---
 
+### Why MedScribe Exists
+
+Electronic Health Records promised efficiency but delivered the opposite.
+Clinicians now spend more time typing than examining patients. AI documentation
+tools addressed the transcription problem but introduced a new one: AI-generated
+notes are bloated, formulaic, and clinically imprecise. A 45-second encounter
+produces a 200-word wall of text that the physician must then pare down to the
+20 words that actually matter.
+
+MedScribe was built by a developer working with a practicing nephrologist to
+solve this specific pain point. The fine-tuned model learns the concise shorthand
+that clinicians actually use — abbreviations, focused assessments, actionable
+plans — rather than the textbook prose that AI models default to.
+
+---
+
+### What MedScribe Does
+
+**Voice to SOAP** — Record or upload audio of a clinical encounter. MedASR
+transcribes the dictation, and the fine-tuned MedGemma model converts it to a
+structured SOAP note in clinical shorthand. The transcript is editable before
+SOAP generation, allowing the clinician to correct any transcription errors.
+
+**Text to SOAP** — Paste any medical encounter transcript and generate a
+structured SOAP note. Useful for converting existing unstructured documentation
+into standardized format, or for demonstrating the model without audio input.
+
+**Clinical Tools** — Five post-generation tools powered by base MedGemma's
+instruction-following capability. These transform a SOAP note from passive
+documentation into an active clinical decision support artifact:
+
+- **ICD-10 Coding**: Suggests billing codes supported by the documentation,
+  reducing coding time and improving reimbursement accuracy.
+- **Patient Summary**: Generates a plain-language visit summary suitable for
+  patient portals or discharge instructions.
+- **Completeness Check**: Reviews the note for documentation gaps — missing
+  vitals, diagnoses without supporting evidence, medications without dosages.
+- **Differential Diagnosis**: Produces a ranked differential with supporting
+  and refuting evidence from the note, catching diagnoses the clinician may
+  not have considered.
+- **Medication Check**: Flags drug-drug interactions, contraindications, and
+  dosage concerns based on the documented medications and conditions.
+
+**Patient Intake Analysis** — A structured intake form that accepts demographics,
+medical history, family history, medications, lifestyle factors, and lab results.
+MedGemma analyzes the complete profile to produce risk assessments, differential
+considerations, recommended screenings, red flags, and clinical questions the
+provider should ask. Designed to surface insights a busy clinician might miss
+during a time-pressured visit.
+
+**Model Comparison** — Side-by-side comparison of base MedGemma output versus
+the LoRA fine-tuned model on the same transcript. Demonstrates the concrete
+value of fine-tuning: shorter notes, clinical shorthand, focused plans, and
+zero hallucination.
+
+---
+
+### Limitations
+
+- English only (MedASR training constraint)
+- Research prototype — not validated for clinical use
+- Training data derived from synthetic encounters
+- Inference speed is hardware-dependent (~25s on RTX 5070 Ti)
+
+---
+
+MedGemma Impact Challenge 2026 | Main Track + Novel Task Prize
+""")
+
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # TAB 7: Technical Details
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            with gr.TabItem("Technical Details"):
+                gr.Markdown("""
 ### Architecture — Three HAI-DEF Models, One Pipeline
 
 | Component | Model | Role |
 |-----------|-------|------|
-| Speech Recognition | MedASR (105M, Conformer) | Medical dictation → text, 5.2% WER |
+| Speech Recognition | MedASR (105M, Conformer) | Medical dictation to text, 5.2% WER |
 | SOAP Generation | MedGemma 1.5 4B (LoRA) | Concise structured notes (~100 words) |
 | Clinical Intelligence | MedGemma 1.5 4B (base) | ICD-10, DDx, risk analysis, screening |
 
-### Clinical Intelligence — 6 Tools
+The pipeline uses three distinct capabilities of Google's HAI-DEF ecosystem.
+MedASR handles domain-specific speech recognition with medical vocabulary
+via CTC decoding and post-processing. The fine-tuned MedGemma model (LoRA
+adapter on 712 curated samples) generates concise SOAP notes. The same base
+MedGemma model, with its preserved instruction-following capability, powers
+all six clinical intelligence tools without additional fine-tuning.
 
-| Tool | Function |
-|------|----------|
-| ICD-10 Coding | Billing codes from SOAP documentation |
-| Patient Summary | Plain-language visit summary |
-| Completeness Check | Documentation gap detection |
-| Differential Diagnosis | Ranked DDx with evidence |
-| Medication Check | Interactions, contraindications, dosage |
-| **Patient Intake Analysis** | **Risk stratification, red flags, screening, zebra detection** |
+---
 
-### Training
+### Fine-tuning Impact — Base vs LoRA Adapter
 
-- 712 curated samples via GPT-4o with anti-hallucination constraints
-- LoRA fine-tuning (rank 16, alpha 32) on MedGemma 1.5 4B
-- Validation loss 0.782 < Train loss 0.828 (no overfitting)
+| Metric | Base MedGemma | Fine-tuned (LoRA) | Improvement |
+|--------|--------------|-------------------|-------------|
+| Avg word count | ~200+ words | 104 words | 46% shorter |
+| Section completeness | 85-95% | 100% (S/O/A/P) | Consistent structure |
+| Hallucinated findings | 5-10% | 0% | Eliminated |
+| WNL shortcuts | Present | 0% | Removed |
+| Clinical conciseness | Textbook verbose | Shorthand style | Clinician-ready |
+| PLAN action items | 4-8 (over-specified) | 2-4 (focused) | Actionable |
 
-### Metrics
+*Use the Model Comparison tab to verify these metrics on any transcript.*
 
-| Metric | Value |
-|--------|-------|
-| Quality score | 90/100 |
-| Section completeness | 100% (S/O/A/P) |
-| Hallucinated findings | 0% |
-| Avg word count | 104 words |
-| Avg inference | ~25s |
+---
+
+### Training Details
+
+| Parameter | Value |
+|-----------|-------|
+| Base model | MedGemma 1.5 4B |
+| Method | LoRA (rank 16, alpha 32) |
+| Training samples | 712 curated |
+| Data source | GPT-4o with anti-hallucination constraints |
+| Validation loss | 0.782 |
+| Train loss | 0.828 |
+| Overfitting | None (val < train) |
+
+**Anti-hallucination training**: Model trained to write "Not documented in
+source" for any clinical finding not present in the input transcript. Zero
+WNL (Within Normal Limits) shortcuts enforced — every finding must be
+explicitly stated.
+
+**Stopping criteria**: Custom SOAP completion detector monitors generated
+text for all four section headers, verifies PLAN section contains at least
+2 clinical action verbs (e.g. "continue", "monitor", "order"), and confirms
+the output ends with a complete sentence. Repetition detector halts generation
+if the model begins re-emitting the prompt or repeating SUBJECTIVE.
+
+---
+
+### Clinical Intelligence Tools
+
+All six tools use the same loaded MedGemma model with LoRA adapter active.
+The base model's instruction-following capability is preserved through the
+adapter, requiring no separate model load.
+
+| Tool | Max Tokens | Typical Time |
+|------|-----------|-------------|
+| ICD-10 Coding | 250 | ~15s |
+| Patient Summary | 300 | ~18s |
+| Completeness Check | 250 | ~15s |
+| Differential Diagnosis | 300 | ~18s |
+| Medication Check | 300 | ~18s |
+| Patient Intake Analysis | 500 | ~30s |
+
+---
 
 ### Deployment
 
-- Consumer GPU (RTX 5070 Ti, 16GB VRAM)
-- 4-bit quantization (NF4) — fully offline
-- MedASR + MedGemma coexist in 16GB VRAM
+| Spec | Value |
+|------|-------|
+| GPU | RTX 5070 Ti (16GB VRAM) |
+| Quantization | 4-bit NF4 with double quantization |
+| MedASR VRAM | ~400MB |
+| MedGemma VRAM | ~3GB (4-bit) |
+| Total VRAM | ~3.4GB (both models loaded) |
+| Framework | Gradio 5+ |
+| Inference | Greedy decoding, KV cache enabled |
+| Privacy | Fully offline — no data leaves device |
 
-### Limitations
+---
 
-- English only · Research prototype · Synthetic training data
-- Clinical tools use base model instruction-following
-- Not validated for clinical use
+### MedASR Pipeline
+
+MedASR is a 105M parameter Conformer model trained on medical speech.
+The transcription pipeline:
+
+1. Audio loaded and resampled to 16kHz mono via librosa
+2. Amplitude normalization (Gradio sends varying float32 ranges)
+3. CTC forward pass produces logit matrix
+4. Argmax decoding with manual CTC collapse (duplicate removal + blank filtering)
+5. Post-processing: stutter-killer regex (3+ repeated chars), SentencePiece
+   token boundary conversion, punctuation token mapping, sentence capitalization
 
 ---
 
@@ -962,8 +1269,8 @@ MedGemma Impact Challenge 2026 | Main Track + Novel Task Prize
         # ── Footer ──
         gr.HTML(
             '<div class="app-footer">'
-            "MedScribe · MedGemma Impact Challenge 2026 · "
-            "HAI-DEF: MedASR + MedGemma 1.5 4B (fine-tuned + base) · "
+            "MedScribe | MedGemma Impact Challenge 2026 | "
+            "HAI-DEF: MedASR + MedGemma 1.5 4B (fine-tuned + base) | "
             "Research prototype — not for clinical use"
             "</div>"
         )

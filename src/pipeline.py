@@ -203,12 +203,17 @@ class MedScribePipeline:
     def generate_soap(self, transcript):
         return self.soap_gen.generate(transcript)
 
+    def generate_soap_base(self, transcript):
+        """Generate SOAP with adapter disabled (base MedGemma) for comparison."""
+        return self.soap_gen.generate_base(transcript)
+
     # --------------------------------------------------------
     # CLINICAL TOOLS (Base MedGemma instruction-following)
     # --------------------------------------------------------
     def suggest_icd10(self, soap_note):
         """Suggest ICD-10-CM codes from SOAP note."""
         prompt = (
+            "Do not repeat yourself. Do not include rationale, final answer, or summary sections. Stop after the numbered list."
             "You are a medical coding assistant. Based on the following SOAP note, "
             "suggest the most applicable ICD-10-CM codes. For each code, provide "
             "the code and a brief description. Only suggest codes clearly supported "
@@ -221,6 +226,7 @@ class MedScribePipeline:
     def patient_summary(self, soap_note):
         """Generate plain-language patient visit summary."""
         prompt = (
+            "Do not repeat yourself. Do not include rationale, final answer, or summary sections. Stop after the numbered list."
             "You are a patient communication assistant. Rewrite the following "
             "clinical SOAP note as a brief, plain-language summary that a patient "
             "can understand. Avoid medical jargon. Use simple, clear sentences. "
@@ -251,6 +257,7 @@ class MedScribePipeline:
         """Generate differential diagnosis list from SOAP note."""
         prompt = (
             "be Concise"
+            "Do not repeat yourself. Do not include rationale, final answer, or summary sections. Stop after the numbered list."
             "You are a clinical reasoning assistant. Based on the following SOAP note, "
             "generate a ranked differential diagnosis list. For each diagnosis:\n"
             "- State the diagnosis\n"
@@ -266,6 +273,7 @@ class MedScribePipeline:
         """Check medications mentioned for interactions and safety concerns."""
         prompt = (
             "be Concise"
+            "Do not repeat yourself. Do not include rationale, final answer, or summary sections. Stop after the numbered list."
             "You are a clinical pharmacist assistant. Review the medications mentioned "
             "in this SOAP note. For each medication identified:\n"
             "- Note the medication and its indication (if clear)\n"

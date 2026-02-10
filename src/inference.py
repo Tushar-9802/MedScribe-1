@@ -2,6 +2,7 @@
 MedScribe Inference Module
 ==========================
 Loads MedGemma v2 adapter and generates SOAP notes + freeform clinical text.
+Supports adapter-on (fine-tuned) and adapter-off (base) generation for comparison.
 """
 import os
 import re
@@ -259,6 +260,50 @@ class SOAPGenerator:
                 eos_token_id=self.tokenizer.eos_token_id,
                 stopping_criteria=criteria,
             )
+        elapsed = time.time() - start
+
+        gen_ids = outputs[0][prompt_len:]
+        raw = self.tokenizer.decode(gen_ids, skip_special_tokens=True)
+        clean = _clean_soap(raw)
+
+        return {
+            "soap_note": clean,
+            "time_s": round(elapsed, 1),
+            "tokens": len(gen_ids),
+            "word_count": len(clean.split()),
+        }
+
+    def generate_base(self, transcript, max_new_tokens=400, min_new_tokens=150):
+        """Generate SOAP note with LoRA adapter DISABLED (base MedGemma only).
+        Used for side-by-side comparison to show fine-tuning value."""
+        if not self._loaded:
+            raise RuntimeError("Model not loaded. Call .load() first.")
+
+        prompt = PROMPT_TEMPLATE.format(transcript=transcript.strip())
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+        prompt_len = inputs["input_ids"].shape[1]
+
+        # Same stopping criteria as fine-tuned
+        soap_stop = _SOAPCompletionCriteria(self.tokenizer, min_tokens=min_new_tokens)
+        soap_stop.prompt_length = prompt_len
+        repeat_stop = _StopOnRepetition(self.tokenizer, prompt_length=prompt_len)
+        criteria = StoppingCriteriaList([soap_stop, repeat_stop])
+
+        start = time.time()
+        with torch.inference_mode():
+            with self.model.disable_adapter():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    min_new_tokens=min_new_tokens,
+                    do_sample=False,
+                    temperature=None,
+                    top_p=None,
+                    use_cache=True,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    stopping_criteria=criteria,
+                )
         elapsed = time.time() - start
 
         gen_ids = outputs[0][prompt_len:]
