@@ -1,4 +1,4 @@
-# MedScribe Inference Configuration
+# call2care Inference Configuration
 # For Gradio UI and production deployment
 
 model:
@@ -35,7 +35,7 @@ audio:
   trim_silence: true
 
 ui:
-  title: "MedScribe - Voice-to-SOAP Documentation"
+  title: "call2care - Voice-to-SOAP Documentation"
   description: "AI-powered clinical note generation using MedASR + MedGemma"
   theme: "soft"
   server_name: "0.0.0.0"

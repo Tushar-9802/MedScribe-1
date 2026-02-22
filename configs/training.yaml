@@ -1,11 +1,11 @@
 # ============================================
-# MedScribe Training Configuration
+# call2care Training Configuration
 # Hardware: RTX 5070 Ti (16GB VRAM), Windows
 # PyTorch: Nightly (CUDA 12.8)
 # ============================================
 
 experiment:
-  name: "medscribe-voice-to-soap"
+  name: "call2care-voice-to-soap"
   description: "LoRA fine-tuning MedGemma 4B for clinical SOAP note generation"
   seed: 42
   tags: ["medgemma", "lora", "clinical-notes", "soap"]
@@ -155,7 +155,7 @@ logging:
   
   # Optional: Weights & Biases
   # report_to: ["tensorboard", "wandb"]
-  # wandb_project: "medscribe"
+  # wandb_project: "call2care"
   # wandb_entity: "your_username"
 
 # Evaluation Metrics

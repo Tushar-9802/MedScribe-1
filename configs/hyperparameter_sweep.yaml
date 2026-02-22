@@ -2,7 +2,7 @@
 # For Week 2 optimization runs
 
 sweep:
-  name: "medscribe-hyperparam-sweep"
+  name: "call2care-hyperparam-sweep"
   method: "grid"  # Grid search (deterministic)
   
   parameters:

@@ -126,7 +126,7 @@ Three models from Google's HAI-DEF ecosystem in a single pipeline:
 MedASR and MedGemma coexist in 16GB VRAM (4-bit quantization). The LoRA
 adapter adds 4.2M trainable parameters (0.1% of base) and was fine-tuned on
 712 curated samples with anti-hallucination constraints. Total training cost:
-$1.28 via GPT-4o Mini API.
+$1.28 via GPT-4o API.
 
 For complete technical details — stopping criteria, CTC decoding pipeline,
 generation parameters, training configuration, and UI implementation — see
@@ -241,9 +241,9 @@ MIT License (code). Model weights subject to Google's terms of use.
 
 ## Documentation and LInks
 
-#### Adaptors/Safetensors: [Huggingface](https://huggingface.co/Tushar9802/medscribe-soap-lora)
+#### Adaptors/Safetensors: [Huggingface](https://huggingface.co/Tushar9802/MedScribe-soap-lora)
 
-#### Dataset: [Kaggle](https://www.kaggle.com/datasets/tusharjaju/medscribe-soap-training-data-712-curated-samples)
+#### Dataset: [Kaggle](https://www.kaggle.com/datasets/tusharjaju/MedScribe-soap-training-data-712-curated-samples)
 
 #### Technical Documentation: [TECHNICAL.md](TECHNICAL.md)
 

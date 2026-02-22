@@ -133,7 +133,7 @@ and a warmup generation (10 tokens) runs at load time to compile CUDA kernels.
 | ---------------- | -------------------- |
 | Rank             | 16                   |
 | Alpha            | 32                   |
-| Dropout          | 0.05                 |
+| Dropout          | 0.1                  |
 | Target modules   | All attention layers |
 | Trainable params | ~4.2M (0.1% of base) |
 | Adapter size     | ~17MB on disk        |
@@ -307,7 +307,7 @@ lack sufficient clinical detail for comprehensive analysis.
 
 | Parameter | Value                                             |
 | --------- | ------------------------------------------------- |
-| Source    | GPT-4o Mini API                                   |
+| Source    | GPT-4o API                                   |
 | Samples   | 712 curated transcript-SOAP pairs                 |
 | Cost      | $1.28 total                                       |
 | Format    | Medical encounter transcript → concise SOAP note |
@@ -329,10 +329,9 @@ not clinical knowledge — the base model's medical knowledge is preserved.
 | Base model     | MedGemma 1.5 4B                                      |
 | Method         | LoRA (rank 16, alpha 32, dropout 0.05)               |
 | Target modules | All attention layers                                 |
-| Batch size     | 8 per device, 4 gradient accumulation (effective 32) |
-| Learning rate  | 2e-4                                                 |
-| Epochs         | 3                                                    |
-| Precision      | BFloat16                                             |
+| Batch size     | 2 per device, 8 gradient accumulation (effective 16) |
+| Learning rate  | 2e-5                                                 |
+| Epochs         | 5 (early stopping patience: 2)                       |
 | Quantization   | 4-bit NF4 during training                            |
 
 ### Results
@@ -452,12 +451,12 @@ Three independent mechanisms force light mode regardless of OS preference:
 | `app.py`                 | ~1200 | Gradio UI, handlers, CSS, HTML formatting                   |
 | `src/inference.py`       | ~400  | SOAPGenerator, stopping criteria (SOAP + freeform), prompts |
 | `src/pipeline.py`        | ~400  | MedScribePipeline, MedASR, CTC decode, clinical tools       |
-| `train_v2.py`            | ~400  | LoRA fine-tuning script                                     |
-| `evaluate_v2.py`         | ~300  | Quality evaluation metrics                                  |
+| `train.py`            | ~400  | LoRA fine-tuning script                                     |
+| `evaluate.py`         | ~300  | Quality evaluation metrics                                  |
 | `generate_soap_gpt4o.py` | ~400  | Training data generation via OpenAI API                     |
 
 ## Documentation and LInks
 
-#### Adaptors/Safetensors: [Huggingface](https://huggingface.co/Tushar9802/medscribe-soap-lora)
+#### Adaptors/Safetensors: [Huggingface](https://huggingface.co/Tushar9802/MedScribe-soap-lora)
 
-#### Dataset: [Kaggle](https://www.kaggle.com/datasets/tusharjaju/medscribe-soap-training-data-712-curated-samples)
+#### Dataset: [Kaggle](https://www.kaggle.com/datasets/tusharjaju/MedScribe-soap-training-data-712-curated-samples)
